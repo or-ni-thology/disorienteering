@@ -1,0 +1,1839 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DISORIENTEERING</title>
+<meta name="description" content="A sport of arriving at the Particular for no real reason.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&family=EB+Garamond:ital,wght@0,400;0,500;1,400;1,500&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4leaflet/1.0.2/proj4leaflet.min.js"></script>
+<!-- two fingers move the ground; one finger turns the page (mobile only) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-gesture-handling@1.2.2/dist/leaflet-gesture-handling.min.css">
+<script src="https://cdn.jsdelivr.net/npm/leaflet-gesture-handling@1.2.2/dist/leaflet-gesture-handling.min.js"></script>
+
+<style>
+  :root{
+    --ground:#e6eaec;      /* the pale grey-blue of the sky before weather   */
+    --paper:#f7f5ef;       /* the page                                       */
+    --ink:#473c30;         /* brown ink                                      */
+    --ink-soft:#6d6052;    /* annotations                                    */
+    --line:#b9ab93;        /* construction lines                             */
+    --line-faint:#d4cab6;  /* fainter still                                  */
+    --rust:#9c4f2e;        /* the Particular. used sparingly, like boldness.      */
+
+    /* ── the peat terminal: the instrument's dark voice ──────────── */
+    --peat:#241a13;        /* wet peat — the GPS device's body               */
+    --peat-card:#2b2018;   /* a panel raised a little off the peat           */
+    --peat-edge:#14100b;   /* the cut edge of the peat                       */
+    --bog:#ece3cf;         /* bog-cotton — the bright readout                */
+    --bog-dim:#cdc1a4;     /* a dimmer readout                               */
+    --bog-quiet:#9a9079;   /* the quietest mono label                        */
+    --lichen:#aaae98;      /* the green accent · cursor · the search-ground  */
+    --lichen-ink:#5f6f38;  /* lichen for the pale side                       */
+    --heather:#b489b8;     /* moor purple, held in reserve                   */
+    --bracken:#c0743e;     /* rust, lifted to glow on peat                   */
+    --slate:#5d5447;       /* a hairline rule on the dark                    */
+
+    --serif:"EB Garamond",Georgia,"Times New Roman",serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    background:var(--ground);
+    color:var(--ink);
+    font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-size:15px;line-height:1.65;
+    padding:clamp(14px,3vw,40px);
+  }
+  a{color:inherit}
+
+  /* ---------- header ---------- */
+  header{max-width:1180px;margin:0 auto 26px}
+  .masthead{display:flex;align-items:center;gap:14px}
+  .masthead svg{flex:none}
+  h1{
+    font-size:clamp(22px,4.6vw,34px);font-weight:600;
+    letter-spacing:.18em;text-transform:uppercase;
+  }
+  .standfirst{
+    margin-top:10px;max-width:62ch;color:var(--rust);font-size:1.5em;font-weight:500;font-family: var(--serif);font-style:italic;
+  }
+  .rule{border:none;border-top:1px solid var(--rust);margin:35px 0px 56px 0px;}
+
+  /* ---------- layout ---------- */
+  /* one instrument, one face at a time, at every width — turned by the
+     switch above. no two-column bench: the tool stays the size of a single
+     face, so it drops into a half-screen iframe without a column of sky
+     beside it. Ova here (the walk · compass) opens; Ova where (the laying ·
+     map) waits a tab away. */
+  main{
+    max-width:1180px;margin:0 auto;
+  }
+  .face{display:none}
+  .face.active{display:block}
+
+  section{
+    background:transparent;
+    border:1px solid var(--line);
+    padding:clamp(16px,2.6vw,26px);
+  }
+  /* the needle panel floats on the sky — the dreamed half, drawn
+     straight onto the pale ground, unframed. its operated half (the
+     keys) drops into a peat console below; see .deck. the peat map
+     case keeps its own dark instrument border, further down.      */
+  section[aria-labelledby="needle-h"]{
+    background:transparent;
+    border:none;
+    padding:0;
+  }
+  .eyebrow{
+    font-size:11px;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--ink-soft);
+    display:flex;align-items:center;gap:10px;margin-bottom:14px;
+  }
+  .eyebrow::after{content:"";flex:1;border-top:1px solid var(--line-faint)}
+
+  /* ---------- compass ---------- */
+  .compass-wrap{display:flex;justify-content:center;padding:6px 0 2px}
+  #compass{width:min(78vw,320px);height:auto;display:block;cursor:pointer}
+  #needle{
+    transform-origin:170px 170px;
+    transition:transform 1.1s cubic-bezier(.25,.8,.3,1);
+  }
+  @keyframes winnow{
+    0%,100%{transform:rotate(var(--r,0deg))}
+    20%{transform:rotate(calc(var(--r,0deg) - 7deg))}
+    40%{transform:rotate(calc(var(--r,0deg) + 7deg))}
+    60%{transform:rotate(calc(var(--r,0deg) - 4deg))}
+    80%{transform:rotate(calc(var(--r,0deg) + 4deg))}
+  }
+  #needle.winnowing{animation:winnow 1.1s ease-in-out infinite}
+  /* the stir: a single shrug when a fresh egg goes in,
+     so a seal is *seen* even when the needle has nowhere to aim */
+  @keyframes stir{
+    0%,100%{transform:rotate(var(--r,0deg))}
+    25%{transform:rotate(calc(var(--r,0deg) - 5deg))}
+    65%{transform:rotate(calc(var(--r,0deg) + 5deg))}
+  }
+  #needle.stirring{animation:stir .65s ease-in-out 1}
+  @media (prefers-reduced-motion:reduce){
+    #needle{transition:none}
+    #needle.winnowing{animation:none}
+    #needle.stirring{animation:none}
+  }
+
+  .reading{
+    text-align:center;font-size:17px;font-weight:500;min-height:1.6em;margin-top:8px;
+  }
+  .reading.arrived{color:var(--rust)}
+  .status{
+    text-align:center;font-size:14px;color:var(--ink-soft);
+    font-family:var(--serif);font-style:italic;min-height:1.6em;margin-top:3px;
+  }
+
+  /* the nest — where the egg sits, in plain view, priming the needle */
+  .seal-row{
+    display:flex;gap:10px;align-items:stretch;margin-top:18px;
+  }
+  .seal-row input{
+    flex:1;min-width:0;
+    font:inherit;letter-spacing:.12em;font-size:13.5px;
+    background:var(--paper);color:var(--ink);
+    border:1px solid var(--line);border-radius:0;
+    padding:10px 12px;
+  }
+  .seal-row input::placeholder{letter-spacing:.04em;font-family:var(--serif);font-style:italic;font-size:15px;color:var(--ink-soft);opacity:.7}
+  .seal-row input:focus{outline:2px solid var(--ink);outline-offset:2px}
+  /* lichen ink when the egg in the nest is the very egg priming the needle */
+  .seal-row input.primed{border-color:var(--lichen-ink);color:var(--lichen-ink)}
+  .egg-btn{
+    flex:none;width:54px;border:1px solid var(--line);background:var(--paper);
+    cursor:pointer;display:grid;place-items:center;padding:6px;
+  }
+  .egg-btn:hover{background:var(--ground)}
+  .egg-btn:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+  .hint{font-size:13px;color:var(--ink-soft);font-family:var(--serif);font-style:italic;margin-top:7px;line-height:1.5}
+
+  .btn-row{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
+  /* a paired row: two keys of equal width, sitting side by side,
+     each holding the centre. opted into per-row, never the map's. */
+  .btn-row.split{flex-wrap:nowrap;align-items:stretch}
+  .btn-row.split > *{flex:1 1 0;min-width:0;text-align:center;justify-content:center}
+  /* a led row: one snug key (the wordless bird) and one worded key that
+     takes the rest of the width — so the bird is held, not marooned. */
+  .btn-row.lead{flex-wrap:nowrap;align-items:stretch}
+  .btn-row.lead > .plain{flex:1 1 auto}
+  .btn-row.lead > .release-btn{flex:none}
+  button.plain{
+    font:inherit;font-size:12px;letter-spacing:.08em;
+    background:#ffffff;color:var(--ink);
+    border:1px solid var(--ink);border-radius:0;
+    padding:9px 14px;cursor:pointer;
+  }
+  button.plain:hover{background:var(--ink);color:var(--paper)}
+  button.plain:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+  button.plain[disabled]{opacity:.45;cursor:default}
+  button.plain[disabled]:hover{background:#ffffff;color:var(--ink)}
+  button.plain[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+  /* a latched sense — pressed AND done. dark and steady, not faded:
+     disabled here means "on", not "unavailable" */
+  button.plain[disabled][aria-pressed="true"],
+  button.plain[disabled][aria-pressed="true"]:hover{opacity:1;cursor:default;background:var(--ink);color:var(--paper)}
+
+  .toggles{margin-top:14px;font-size:12.5px;color:var(--ink-soft)}
+  .toggles label{display:flex;gap:8px;align-items:center;cursor:pointer;margin-top:4px}
+  .toggles input{accent-color:var(--ink)}
+
+  /* ---------- map ---------- */
+  #map{
+    height:520px;   /* fixed inside the frame: 62vh would chase the iframe's own resize */
+    border:1px solid var(--line);
+    background:var(--ground);
+    filter:saturate(.92);
+    border-radius:12px;   /* CRT shoulders */
+  }
+  .key{
+    margin-top:14px;border-top:1px dashed var(--line-faint);padding-top:12px;
+  }
+  .key-title{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-soft)}
+  .key-items{margin-top:8px;display:flex;flex-direction:column;gap:6px}
+  .key-items label{
+    display:flex;gap:9px;align-items:baseline;cursor:pointer;
+    font-size:15px;font-family:var(--serif);font-style:italic;   /* the tiny italics of the map key */
+  }
+  .key-items input{accent-color:var(--ink)}
+  .key-items .swatch{
+    flex:none;width:22px;height:11px;align-self:center;
+    border:1px solid var(--line);background:repeating-linear-gradient(
+      45deg,transparent,transparent 3px,var(--line) 3px,var(--line) 4px);
+  }
+  .mapnote{font-size:13px;font-family:var(--serif);font-style:italic;color:var(--ink-soft);margin-top:10px}
+  #eggout{letter-spacing:.12em;font-size:13.5px}
+
+  footer{
+    max-width:1180px;margin:26px auto 8px;
+    font-size:11.5px;color:var(--ink-soft);
+    display:flex;flex-wrap:wrap;gap:6px 22px;justify-content:space-between;
+  }
+
+  /* ── THE KEEPER'S WORD ─────────────────────────────────────
+     A care-note in the bird's own voice, at the very foot of the
+     instrument. It lives inside #snipe-root, so it travels into
+     any iframe the compass is dropped into — not only the site
+     footer. Faint by design: a naturalist's caution, not a notice. */
+  .dz-keeper{
+    max-width:62ch;margin:30px auto 0;text-align:center;
+    font-family:var(--serif);font-style:italic;
+    font-size:13px;line-height:1.6;color:var(--ink-soft);
+  }
+  .dz-keeper::before{
+    content:"";display:block;height:1px;width:300px;max-width:60%;
+    background:#cfd4d2;margin:0 auto 16px;
+  }
+
+  /* ═══════════════ THE TITLE — dis / Orienteering ═══════════════
+     a sibling, not a clone: the negation whispered in mono, the
+     wandering sung in EB Garamond italic, the rust bill-dot doing
+     a turn as punctuation / the west the needle insists upon.    */
+  .wm{display:inline-flex;align-items:baseline;line-height:1;white-space:nowrap}
+  .wm .dis{font-family:"IBM Plex Mono",ui-monospace,monospace;font-weight:500;
+           text-transform:uppercase;color:var(--rust)}
+  .wm .orient{font-family:var(--serif);font-style:italic;font-weight:500;color:var(--ink)}
+  .wm .dot{display:inline-block;border-radius:50%;background:var(--rust);flex:none}
+  .wm .tick{display:inline-block;width:0;height:0;border-style:solid;flex:none;
+            border-width:.42em .70em .42em 0;
+            border-color:transparent var(--rust) transparent transparent}
+
+  /* A · middot kin (sibling to OVA's middot) */
+  .wm.A .dis{align-self:center}
+  .wm.A .dot{align-self:center;margin:0 .42em;width:.18em;height:.18em}
+  /* B · west-tick prefix — the negation hugs the word, rust points west */
+  .wm.B .tick{align-self:center;margin-right:.5em}
+  .wm.B .dis{align-self:flex-start;transform:translateY(.12em);margin-right:-0.5em;font-size:.49em;letter-spacing:.22em}
+  /* C · the field-guide heading — mono kicker over a serif title */
+  .wm.C{flex-direction:column;align-items:flex-start;gap:.06em}
+  .wm.C .dis{font-size:.30em;letter-spacing:.40em;display:inline-flex;align-items:center;gap:.6em}
+  .wm.C .dis .dot{width:.5em;height:.5em}
+
+  /* the wordmark overrides the old shouting-caps h1 */
+  .masthead h1{text-transform:none;letter-spacing:normal;font-weight:400;font-size:inherit}
+  /* live masthead sizing */
+  .masthead .wm .dis{font-size:clamp(12px,1.5vw,16px);letter-spacing:.30em}
+  .masthead .wm .orient{font-size:clamp(36px,6.4vw,58px)}
+  .masthead .wm.B .dis{font-size:clamp(15px,2.4vw,24px)}
+  .masthead .wm.C .dis{font-size:clamp(11px,1.4vw,15px)}
+
+  /* ═══════════════ DISORIENTEERING · MASTHEAD ═══════════════
+     The egg nameplate, carried over from OVA·TRANSMISSOR's dark-
+     terminal register — same inks, same grounds; only the wordmark
+     has changed hands. The O is not a letter. The O is a nest, and
+     a fresh snipe egg is laid into it on every page load (see
+     "PLANT THE MASTHEAD EGG" in the script). Quid ni?            */
+  .dz-mast{max-width:620px;margin:0 auto 0px;text-align:center}
+  .dz-mast-rule{height:1px;background:#cfd4d2;margin:8px 50px}
+  .dz-wordmark{
+    font-family:var(--serif);
+    font-size:24px;font-weight:400;
+    letter-spacing:.14em;text-transform:uppercase;
+    color:#3d2e1f;                 /* SEPIA — the defining line */
+    margin:12px 0 14px;line-height:1;
+  }
+  .dz-subtitle{
+    font-family:var(--serif);font-style:italic;
+    font-size:14px;color:#6b5d49;margin:2px 0;   /* MID-SEPIA */
+  }
+  .dz-edition{
+    font-family:"IBM Plex Mono",ui-monospace,monospace;
+    font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+    color:#5f6f38;margin:6px 0px 20px 0px;
+  }
+  /* ── THE EGG DIALS · faff freely ───────────────────────────
+     Three numbers, all in 'em' (em scales with the wordmark, so
+     the egg keeps its proportions whatever you do). Change a
+     number, save, reload. Nothing else need be touched. All three
+     read the friendly way — bigger number, more of the thing —
+     so there are no minus signs to wrestle.
+        --egg       SIZE  · bigger number → bigger egg
+        --egg-down  SEAT  · bigger number → sits it lower
+        --egg-left  SHUNT · bigger number → slides it further left
+     A feel for the SIZE dial:
+        1.12em   → nests as the O; the word stays whole   (default)
+        1.25–1.4 → a fuller egg, still plainly the word
+        1.56em   → a big egg, leaping clear of the line
+        ~1.7em+  → the cake breaks down: the egg crashes the rule
+                   and the word stops reading. You'll know it. */
+  .dz-egg-o{
+    --egg:      1.56em;   /* SIZE  */
+    --egg-down:  .40em;   /* SEAT  */
+    --egg-left:  0.04em;     /* SHUNT */
+    display:inline-block;line-height:0;vertical-align:baseline;
+    transform:translate(calc(-1 * var(--egg-left)), var(--egg-down));
+  }
+  .dz-egg-o svg{display:block;height:var(--egg);width:auto}
+
+  /* ═══════════ COMPASS SIDE — terminal-esque, on pale ground ═══════════ */
+  .seal-row input{
+    background:#ffffff;border:1px solid var(--ink);border-radius:2px;
+    box-shadow:inset 0 1px 2px rgba(36,26,19,.16);
+  }
+  .egg-btn{
+    background:var(--peat);border:1px solid var(--peat-edge);border-radius:2px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 1px 2px rgba(36,26,19,.28);
+  }
+  .egg-btn:hover{background:var(--peat-card)}
+  .egg-btn .egg-icon{display:block;filter:drop-shadow(0 1px 1px rgba(0,0,0,.4))}
+  .egg-btn .egg-icon svg{display:block}
+  /* the release key — the bird herself, standing, wordless: press
+     her and she's loosed back to her own west. sibling to the egg
+     key, but wider, and a comfortable thumb's reach.            */
+  .egg-btn.release-btn{width:60px;min-height:44px}
+  /* the reset key, now worded: the plain truth, then the wordless bird.
+     a settings-row sibling to metres/skulk, so it wears .plain, not .egg-btn,
+     and lays its word and its snipe in a row down the middle. */
+  #release.reset-key{display:flex;align-items:center;justify-content:center;gap:9px}
+  #release.reset-key .egg-icon{display:block;line-height:0;filter:drop-shadow(0 1px 1px rgba(0,0,0,.4))}
+  button.plain{
+    border-radius:2px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 1px 1px rgba(36,26,19,.12);
+  }
+  button.plain:hover{background:var(--peat);color:var(--bog);border-color:var(--peat-edge)}
+  button.plain[aria-pressed="true"]{background:var(--peat);color:var(--bog);border-color:var(--peat-edge)}
+  button.plain[disabled][aria-pressed="true"],
+  button.plain[disabled][aria-pressed="true"]:hover{background:var(--peat);color:var(--bog);border-color:var(--peat-edge)}
+
+  /* ═══════════ THE NEEDLE'S CONSOLE — a peat deck for the hands ═══════════
+     sibling to the map terminal: the keys, the nest, the metres/skulk
+     toggle, all gathered onto wet peat below the floating rose. the
+     dress is lifted wholesale from .instrument so the two instruments
+     rhyme — bog-cotton faces, lichen when lit.                        */
+  .deck{
+    margin-top:20px;
+    background:var(--peat);border:1px solid var(--peat-edge);color:var(--bog);
+    box-shadow:inset 0 0 0 1px rgba(0,0,0,.22),0 1px 3px rgba(36,26,19,.18);
+    padding:clamp(16px,2.6vw,22px);border-radius:7px;
+  }
+  .deck > :first-child{margin-top:0}
+  .deck .hint{color:var(--bog-quiet)}
+
+  .deck button.plain{
+    background:var(--peat-card);color:var(--bog);border:1px solid var(--slate);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+  }
+  .deck button.plain:hover{background:var(--lichen);color:var(--peat);border-color:var(--lichen)}
+  .deck button.plain[aria-pressed="true"]{background:var(--lichen);color:var(--peat);border-color:var(--lichen)}
+  .deck button.plain[disabled]{opacity:.4}
+  .deck button.plain[disabled]:hover{background:var(--peat-card);color:var(--bog);border-color:var(--slate)}
+  /* latched-on (Awake · Following): lit lichen, not faded — "on", not "spent" */
+  .deck button.plain[disabled][aria-pressed="true"],
+  .deck button.plain[disabled][aria-pressed="true"]:hover{
+    opacity:1;background:var(--lichen);color:var(--peat);border-color:var(--lichen)}
+
+  /* the nest, dressed for the peat — a lit readout field on the dark deck,
+     kin to the map's #eggout. the egg code reads in bog, lichen when primed. */
+  .deck .seal-row input{
+    background:#181109;color:var(--bog);border:1px solid var(--slate);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.4);
+  }
+  .deck .seal-row input::placeholder{color:var(--bog-quiet);opacity:1}
+  .deck .seal-row input:focus{outline:2px solid var(--lichen);outline-offset:2px}
+  .deck .seal-row input.primed{border-color:var(--lichen);color:var(--lichen)}
+  .deck .egg-btn{background:var(--peat-card);border-color:var(--slate)}
+  .deck .egg-btn:hover{background:var(--lichen)}
+
+  /* ═══════════ THE FIND — a field-naturalist's record card ═══════════
+     appears only on arrival, below the peat deck: the one true egg of
+     the Particular you reached, drawn for your notes. dressed as a
+     specimen label on paper — a discrete artefact handed to you, not
+     part of the dreamed rose above, so its own ink border is honest.
+     not a collector's drawer: an observer's page. the snipe permits
+     the sketch, never the theft.                                      */
+  .find{
+    margin-top:20px;
+    background:var(--paper);
+    border:1px solid var(--ink);
+    border-radius:2px;
+    padding:clamp(18px,3vw,26px);
+    box-shadow:0 1px 3px rgba(36,26,19,.18);
+  }
+  .find[hidden]{display:none}
+  .find .find-eyebrow{
+    font-size:11px;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--ink-soft);display:flex;align-items:center;gap:10px;margin-bottom:16px;
+  }
+  .find .find-eyebrow::after{content:"";flex:1;border-top:1px solid var(--line-faint)}
+  .find-body{display:flex;gap:clamp(16px,3vw,24px);align-items:center}
+  @media (max-width:430px){ .find-body{flex-direction:column;text-align:center} }
+  .find-egg{flex:none;display:grid;place-items:center}
+  .find-egg svg{display:block;filter:drop-shadow(0 2px 5px rgba(36,26,19,.28))}
+  .find-meta{flex:1;min-width:0}
+  .find-species{font-family:var(--serif);font-style:italic;font-size:1.3em;color:var(--ink);line-height:1.15}
+  .find-line{font-size:12.5px;color:var(--ink-soft);margin-top:8px;letter-spacing:.03em}
+  .find-code{font-size:13.5px;letter-spacing:.12em;color:var(--rust);margin-top:8px;word-break:break-all}
+  .find-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+  /* field-note keys: cream, not stark white, and lettered in EB Garamond
+     italic — so the buttons read like the naturalist's own hand, not a
+     web form. bog-cotton fill sits warm against the paler plate.        */
+  .find-actions .plain{
+    flex:1 1 auto;
+    background:var(--bog);
+    border:1px solid var(--ink-soft);
+    color:var(--ink);
+    font-family:var(--serif);font-style:italic;font-size:16px;
+    letter-spacing:.01em;text-transform:none;
+    box-shadow:0 1px 1px rgba(36,26,19,.10);
+  }
+  .find-actions .plain:hover{background:var(--bog-dim);color:var(--ink);border-color:var(--ink)}
+  .find-actions .plain:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+
+  /* ═══════════════ MAP SIDE — the peat GPS terminal ═══════════════ */
+  .instrument{
+    background:var(--peat);border:1px solid var(--peat-edge);color:var(--bog);
+    box-shadow:inset 0 0 0 1px rgba(0,0,0,.22),0 1px 3px rgba(36,26,19,.18);border-radius:7px;
+  }
+  .instrument .eyebrow{color:var(--bog-dim)}
+  .instrument .eyebrow::after{border-top-color:var(--slate);order:1}
+  .instrument .eyebrow .cursor{
+    flex:none;width:8px;height:15px;background:var(--rust);margin-left:2px;order:2;
+    animation:blink 1.15s steps(1) infinite;
+  }
+  @keyframes blink{0%,55%{opacity:1}56%,100%{opacity:.16}}
+  .instrument #map{
+    border-color:var(--peat-edge);background:#181109;
+    box-shadow:inset 0 0 0 1px rgba(0,0,0,.55),inset 0 0 34px rgba(0,0,0,.22);
+    border-radius:12px;   /* CRT shoulders, to match its dark glass */
+  }
+  .instrument .key{border-top-color:var(--slate)}
+  .instrument .key-title{color:var(--bog-dim)}
+  .instrument .key-items label{color:var(--bog-dim)}
+  .instrument .key-items input,.instrument .toggles input{accent-color:var(--lichen)}
+  .instrument .toggles{color:var(--bog-dim)}
+  .instrument .hint{color:var(--bog-quiet)}
+  .instrument .mapnote{color:var(--bog-quiet)}
+  .instrument > div[style] {border-top-color:var(--slate)!important}
+
+  .instrument button.plain{
+    background:var(--peat-card);color:var(--bog);border:1px solid var(--slate);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+  }
+  .instrument button.plain:hover{background:var(--lichen);color:var(--peat);border-color:var(--lichen)}
+  .instrument button.plain[aria-pressed="true"]{background:var(--lichen);color:var(--peat);border-color:var(--lichen)}
+  .instrument button.plain[disabled]{opacity:.4}
+  .instrument button.plain[disabled]:hover{background:var(--peat-card);color:var(--bog);border-color:var(--slate)}
+  /* the true CTAs wear the lichen ▸, as the house does (▸ LAY THE EGG) */
+  .instrument #dart::before,.instrument #lay::before,.instrument #towalk::before{content:"\25B8\00a0";color:var(--lichen)}
+  .instrument #dart:hover::before,.instrument #lay:hover::before,.instrument #towalk:hover::before{color:var(--peat)}
+
+  /* the egg readout + its hatched specimen */
+  .instrument #eggout{
+    background:#181109;color:var(--lichen);border:1px solid var(--slate);
+  }
+  .egg-specimen{flex:none;display:grid;place-items:center;width:40px;
+    filter:drop-shadow(0 1px 1px rgba(0,0,0,.45))}
+  .egg-specimen svg{display:block}
+
+  @media (prefers-reduced-motion:reduce){.instrument .eyebrow .cursor{animation:none}}
+
+  /* leaflet zoom controls, dressed for the peat */
+  .instrument .leaflet-bar a{background:var(--peat-card);color:var(--bog);border-bottom-color:var(--slate)}
+  .instrument .leaflet-bar a:hover{background:var(--lichen);color:var(--peat)}
+
+  /* leaflet, dressed for the house */
+  .leaflet-container{font-family:inherit}
+  .snipe-marker{filter:drop-shadow(0 1px 1px rgba(71,60,48,.4))}
+  /* the two-finger hint, dressed for the peat — bog-cotton on wet glass */
+  .leaflet-container:after{
+    background:rgba(36,26,19,.60);color:var(--bog);
+    font-family:var(--serif);font-style:italic;font-size:18px;letter-spacing:.02em;
+  }
+
+  /* ═══════════════ THE TWO FACES — one instrument, turned ═══════════════
+     Ova here (the walk · compass) and Ova where (the laying · map). The
+     switch is always shown now, at every width, and wears the instrument's
+     own dress: peat keys, a lit lichen key for the face you're on. */
+  .facetabs{
+    display:flex;max-width:1180px;margin:0 50px 56px;
+    border:0px solid var(--peat-edge);border-radius:4px;overflow:hidden;
+    background:var(--peat);
+    box-shadow:inset 0 0 0 1px rgba(0,0,0,.22),0 1px 3px rgba(36,26,19,.18);
+  }
+  .facetab{
+    flex:1 1 0;min-width:0;font:inherit;font-size:12px;letter-spacing:.08em;
+    background:var(--peat-card);color:var(--bog-dim);
+    border:none;border-right:1px solid var(--peat-edge);
+    padding:13px 12px;cursor:pointer;text-align:center;
+    transition:background .15s,color .15s;
+  }
+  .facetab:last-child{border-right:none}
+  .facetab:hover{background:var(--peat);color:var(--bog)}
+  .facetab:focus-visible{outline:2px solid var(--lichen);outline-offset:-3px}
+  /* the lit face — lichen, as the instrument's "on" keys are */
+  .facetab[aria-selected="true"]{background:var(--lichen);color:var(--peat)}
+
+  /* the rule of play — quiet mono for the passing eye; the maker, who
+     knows it cold, may read straight past it. */
+  .rubric{
+    margin-top:18px;max-width:62ch;font-size:12px;line-height:1.7;color:var(--ink-soft);
+    display:flex;flex-direction:column;gap:1px;
+  }
+  .rubric .rubric-head{
+    font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--ink-soft);margin-bottom:6px;
+  }
+  .rubric b{color:var(--ink);font-weight:600}
+  .rubric .rubric-tail{
+    font-family:var(--serif);font-style:italic;font-size:14px;
+    color:var(--ink-soft);margin-top:7px;
+  }
+
+  /* the punctuation, glowing right against pale ground or peat */
+  .mk{color:var(--rust)}
+  .mk-go{color:var(--rust)}
+  .instrument .mk{color:var(--bracken)}
+  .instrument .mk-go{color:var(--lichen)}
+
+  /* THE LAYING — two doors on the hide face */
+  .laying .eyebrow{margin-bottom:16px}
+  .door + .door{margin-top:18px;border-top:1px dashed var(--slate);padding-top:18px}
+  .door-title{
+    font-size:12px;letter-spacing:.10em;color:var(--bog-dim);margin-bottom:12px;
+  }
+  .door-title i{font-family:var(--serif);font-style:italic;letter-spacing:.02em;color:var(--bog)}
+
+  /* THE STOPPAGE — its own gesture, set apart within the peat deck */
+  .stoppage{margin-top:18px;border-top:1px dashed var(--slate);padding-top:15px}
+  .stoppage-eyebrow{
+    font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--bog-dim);margin-bottom:11px;
+  }
+
+  /* ═══════════ OVA WHERE · TWO CONSOLES — the heft, then the laying ═══════════
+     the hide face no longer wears one long peat coat. it floats two peat
+     consoles on the pale sky, the way the walk face floats its rose above
+     its deck. so the section itself goes bare (it would otherwise take the
+     generic pale section border); each .block is its own instrument panel,
+     given its own padding and a breath between. */
+  section.face-hide{background:transparent;border:none;padding:0}
+  .face-hide .block{padding:clamp(16px,2.6vw,22px)}
+  .face-hide .block + .block{margin-top:20px}
+
+  /* by chance · the fat flight key, and snug beside it the snipe that says
+     whether she lands seen or unseen — word-and-bird, like the reset key, so
+     the crux of the sport stays legible. (lit lichen, via aria-pressed on the
+     instrument, means SEEN: she lets you watch where she falls.) */
+  .snipe-row{display:flex;gap:10px;align-items:stretch;margin-top:12px}
+  .snipe-row #dart{flex:1 1 auto}
+  .snipe-row .snipe-toggle{
+    flex:0 0 auto;min-width:108px;
+    display:flex;align-items:center;justify-content:center;gap:8px;
+  }
+  .snipe-toggle .sealed-word{letter-spacing:.06em}
+  .snipe-toggle .egg-icon{display:block;line-height:0;filter:drop-shadow(0 1px 1px rgba(0,0,0,.4))}
+</style>
+</head>
+<body>
+<!-- everything the eye sees lives inside #snipe-root; the auto-frame script
+     at the foot measures this div and tells the parent page how tall to grow. -->
+<div id="snipe-root">
+
+<header>
+  <div class="dz-mast">
+    
+    <h1 class="dz-wordmark" aria-label="Disorienteering">DIS<span class="dz-egg-o" id="egg-o" aria-hidden="true">O</span>RIENTEERING</h1>
+    <p class="dz-subtitle">The sport of arriving at the Particular for no real reason. The compass is ova here, the map is ova there.</p>
+    <p class="dz-edition">A machine for imaginary eggs</p>
+   
+  </div>
+</header>
+
+<div class="facetabs" role="tablist" aria-label="The two faces of the instrument">
+  <button class="facetab" id="tab-seek" role="tab" aria-controls="face-seek" aria-selected="true">Ova&nbsp;here</button>
+  <button class="facetab" id="tab-hide" role="tab" aria-controls="face-hide" aria-selected="false">Ova&nbsp;where</button>
+</div>
+
+<main>
+  <!-- ============================================================ -->
+  <!-- OVA THERE ▸ — the walk. the compass carried in the hand; the nest
+       where a sent egg lands; her senses; the Stoppage; the find. -->
+  <section id="face-seek" class="face face-seek active" aria-labelledby="needle-h">
+    <div class="eyebrow" id="needle-h">Ova here <span class="mk-go" aria-hidden="true">▸</span>  the walk</div>
+
+    <div class="compass-wrap">
+      <svg id="compass" viewBox="0 0 340 340" role="img"
+           aria-label="A compass whose needle is a snipe. It rests facing west.">
+        <!-- construction ring -->
+        <circle cx="170" cy="170" r="150" fill="none" stroke="var(--ink-soft)" stroke-width="1"/>
+        <circle cx="170" cy="170" r="118" fill="none" stroke="var(--ink-soft)" stroke-width="1" stroke-dasharray="2 5"/>
+        <line x1="170" y1="8" x2="170" y2="332" stroke="var(--line-faint)" stroke-width="0.7" stroke-dasharray="1 6"/>
+        <line x1="8" y1="170" x2="332" y2="170" stroke="var(--line-faint)" stroke-width="0.7" stroke-dasharray="1 6"/>
+        <g id="ticks" stroke="var(--ink-soft)" stroke-width="1"></g>
+        <g font-family="inherit" font-size="15" fill="var(--rust)" text-anchor="middle" font-weight="500">
+          <text x="170" y="32">N</text>
+          <text x="312" y="175">E</text>
+          <text x="170" y="318">S</text>
+          <text x="27" y="175" font-size="16" font-weight="600" fill="var(--rust)">W</text>
+        </g>
+
+        <!-- ==================== THE SNIPE ====================
+             Gallinago gallinago, canonical, from or-ni-thology.
+             The bill is the true pointer; a rust dot marks it.
+             =================================================== -->
+        <g id="needle">
+          <!-- SNIPE-START -->
+          <g transform="translate(170,170) scale(0.7) translate(-400,-420)">
+            <g opacity="0.15" fill="none" stroke="#2c1810" stroke-width="0.5">
+              <circle cx="400" cy="420" r="95"/>
+              <circle cx="340" cy="355" r="42"/>
+              <circle cx="370" cy="460" r="55"/>
+              <circle cx="400" cy="420" r="152" stroke="#6b5d49" opacity="0.85"/>
+            </g>
+            <g opacity="0.07" stroke="#2c1810" stroke-width="0.4" stroke-dasharray="4,6">
+              <line x1="200" y1="250" x2="550" y2="600"/>
+              <line x1="220" y1="370" x2="342" y2="355"/>
+              <line x1="400" y1="250" x2="400" y2="600"/>
+            </g>
+            <path d="M 430 250 A 30 30 0 0 1 421 278" fill="none" stroke="#2c1810" stroke-width="0.6" opacity="0.22"/>
+            <g transform="translate(400,420)">
+              <g transform="rotate(-15)">
+                <ellipse cx="0" cy="0" rx="100" ry="58" fill="none" stroke="#6b5d49" stroke-width="1.8" opacity="0.9"/>
+                <g opacity="0.2" stroke="#3d2e1f" stroke-width="0.6">
+                  <line x1="-80" y1="-30" x2="80" y2="-30" transform="rotate(5)"/>
+                  <line x1="-90" y1="-15" x2="90" y2="-15" transform="rotate(3)"/>
+                  <line x1="-95" y1="0" x2="95" y2="0"/>
+                  <line x1="-90" y1="15" x2="90" y2="15" transform="rotate(-3)"/>
+                  <line x1="-80" y1="30" x2="80" y2="30" transform="rotate(-5)"/>
+                  <line x1="-65" y1="42" x2="65" y2="42" transform="rotate(-7)"/>
+                </g>
+              </g>
+              <circle cx="-55" cy="-60" r="30" fill="none" stroke="#6b5d49" stroke-width="1.5" opacity="0.9"/>
+              <circle cx="-48" cy="-72" r="4" fill="#2c1810"/>
+              <circle cx="-47" cy="-73" r="1.2" fill="white"/>
+              <g opacity="0.25" stroke="#3d2e1f" stroke-width="0.8">
+                <line x1="-78" y1="-68" x2="-30" y2="-68"/>
+                <line x1="-75" y1="-58" x2="-35" y2="-58"/>
+              </g>
+              <line x1="-82" y1="-55" x2="-180" y2="-50" stroke="#6b5d49" stroke-width="2" stroke-linecap="round" opacity="0.95"/>
+              <line x1="-180" y1="-38" x2="-82" y2="-38" stroke="#2c1810" stroke-width="0.4" opacity="0.2"/>
+              <text x="-140" y="-28" text-anchor="middle" font-size="8" fill="#6b5d49" opacity="0.55" font-style="italic" font-family="'EB Garamond', Georgia, serif">62–75 mm</text>
+              <polygon points="-10,-40 95,-10 30,45" fill="none" stroke="#3d2e1f" stroke-width="1.2" opacity="0.5"/>
+              <line x1="10" y1="-25" x2="70" y2="0" stroke="#3d2e1f" stroke-width="0.6" opacity="0.22"/>
+              <line x1="15" y1="-10" x2="65" y2="15" stroke="#3d2e1f" stroke-width="0.6" opacity="0.22"/>
+              <g transform="translate(85, 10)">
+                <g opacity="0.5">
+                  <line x1="0" y1="0" x2="55" y2="-25" stroke="#3d2e1f" stroke-width="1.5" stroke-linecap="round"/>
+                  <line x1="0" y1="0" x2="60" y2="-15" stroke="#3d2e1f" stroke-width="1.2" stroke-linecap="round"/>
+                  <line x1="0" y1="0" x2="62" y2="-5" stroke="#3d2e1f" stroke-width="1" stroke-linecap="round"/>
+                  <line x1="0" y1="0" x2="62" y2="5" stroke="#3d2e1f" stroke-width="1" stroke-linecap="round"/>
+                  <line x1="0" y1="0" x2="60" y2="15" stroke="#3d2e1f" stroke-width="1.2" stroke-linecap="round"/>
+                  <line x1="0" y1="0" x2="55" y2="25" stroke="#3d2e1f" stroke-width="1.5" stroke-linecap="round"/>
+                </g>
+                <line x1="0" y1="0" x2="55" y2="-25" stroke="#8b5e3c" stroke-width="2.5" stroke-linecap="round" opacity="0.4"/>
+                <line x1="0" y1="0" x2="55" y2="25" stroke="#8b5e3c" stroke-width="2.5" stroke-linecap="round" opacity="0.4"/>
+              </g>
+              <line x1="-10" y1="50" x2="-20" y2="95" stroke="#3d2e1f" stroke-width="1.2" opacity="0.5"/>
+              <line x1="10" y1="50" x2="5" y2="95" stroke="#3d2e1f" stroke-width="1.2" opacity="0.5"/>
+              <line x1="-25" y1="95" x2="-15" y2="95" stroke="#3d2e1f" stroke-width="0.8" opacity="0.4"/>
+              <line x1="0" y1="95" x2="10" y2="95" stroke="#3d2e1f" stroke-width="0.8" opacity="0.4"/>
+              <!-- the rust dot: tip of the bill, the true pointer -->
+              <circle cx="-180" cy="-50" r="3" fill="var(--rust)"/>
+            </g>
+          </g>
+          <!-- SNIPE-END -->
+        </g>
+      </svg>
+    </div>
+
+    <p class="reading" id="reading">resting · west</p>
+    <p class="status" id="status">Gallinago is asleep. wake her, then switch on her GPS.</p>
+
+    <!-- the operated half: every key the thumb touches, gathered onto peat -->
+    <div class="deck">
+
+    <!-- THE NEST — where a sent egg lands. The walker's first act is to
+         paste the code they were sent, so the nest greets the hand first. -->
+    <div class="seal-row">
+      <label for="nest" class="visually-hidden" style="position:absolute;left:-9999px">Egg code</label>
+      <input id="nest" type="text" autocomplete="off" autocorrect="off" autocapitalize="characters"
+             spellcheck="false" placeholder="the nest awaits an egg">
+      <button class="egg-btn" id="seal" title="Seal the Particular" aria-label="Seal the Particular">
+        <span class="egg-icon" id="sealegg" aria-hidden="true"></span>
+      </button>
+    </div>
+    <p class="hint">only an egg may sit here.
+    Paste or type one and press the seal. The code stays in view: an egg in the nest
+    means the compass is primed, and no glance can read a place out of it anyway.
+    Sealing another replaces the last — the snipe stirs to say so.</p>
+
+    <!-- THE SENSES — Wake leads, being the first instinct (rouse the bird);
+         then her GPS gives her your whereabouts, the load-bearing sense from
+         which distance and "getting warm" are reckoned. Wake adds your
+         heading, so the needle points true, not merely north-up. The pair now
+         reads in the order of the resting line: "wake her, then switch on her GPS." -->
+    <div class="btn-row split">
+      <button class="plain" id="wake" aria-pressed="false">Wake up</button>
+      <button class="plain" id="follow" aria-pressed="false">Gallinago GPS</button>
+    </div>
+
+    <!-- THE KNOBS — a quiet settings row, even halves: the reset key (the
+         word, and her snipe beside it) forgets the Particular, empties the
+         nest, and faces her west again; its sibling flips her voice between
+         plain metres and the vaguer skulk. The metres choice still lives in a
+         hidden checkbox; the button flips it and the rest of the instrument
+         never notices the swap. -->
+    <div class="btn-row split">
+      <button class="plain reset-key" id="release"
+              title="Reset — let Gallinago rest, facing west"
+              aria-label="Reset — let Gallinago rest, facing west, and empty the nest">
+        <span>reset</span>
+        <span class="egg-icon" id="releasesnipe" aria-hidden="true"></span>
+      </button>
+      <button class="plain" id="metresbtn" aria-pressed="false">metres</button>
+    </div>
+    <input type="checkbox" id="metres" hidden>
+
+    <!-- THE STOPPAGE — the connoisseur's gesture, set apart at the foot of
+         the deck. Seal the spot you already stand on: no walk, the needle
+         winnows at once, the egg of this exact place is drawn below for the
+         field notes. After Duchamp's stoppages — chance, fixed, and kept;
+         the Particular you'd have walked clean past. -->
+    <div class="stoppage">
+      <div class="stoppage-eyebrow">the Stoppage · an egg where you stand</div>
+      <div class="btn-row split">
+        <button class="plain" id="stoppage">Lay one where I stand</button>
+      </div>
+      <p class="hint">no walking — the unregarded spot under you, sealed where you
+      stand. the snipe winnows, and its one true egg is drawn below for the logbook.</p>
+    </div>
+    </div><!-- /.deck — the peat console -->
+
+    <!-- THE FIND — hidden until you stand upon the Particular. then the
+         one true egg of this spot is drawn here, to sketch for your field
+         notes. the snipe does not permit her eggs to be taken; only
+         recorded. (a pure function of the egg code, so the same place
+         always lays the very same egg, and no other place its like.) -->
+    <div class="find" id="find" hidden>
+      <div class="find-eyebrow">the find · for your field notes</div>
+      <div class="find-body">
+        <span class="find-egg" id="findegg" aria-hidden="true"></span>
+        <div class="find-meta">
+          <div class="find-species">Gallinago gallinago</div>
+          <div class="find-line" id="findgr"></div>
+          <div class="find-line" id="finddate"></div>
+          <div class="find-code" id="findcode"></div>
+        </div>
+      </div>
+      <div class="find-actions">
+        <button class="plain" id="sketchsvg">Sketch the egg</button>
+        <button class="plain" id="sketchpng">Keep the field note</button>
+      </div>
+      <p class="hint">she will not have her eggs taken — only sketched. carry the sketch
+      home: it is the one true egg of this Particular, and no other ground lays its like.</p>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- OVA WHERE ¿ — the laying. no longer one long peat coat: two peat
+       consoles floated on the pale sky. BLOCK ONE · THE HEFT — the ground
+       both hands play upon (its centre, its reach). BLOCK TWO · THE LAYING
+       — the two ways an egg is set down inside it: by chance, by hand. an
+       egg laid here is carried to the nest, or copied and sent to a walker. -->
+  <section id="face-hide" class="face face-hide" aria-labelledby="heft-h">
+
+    <!-- ── BLOCK ONE · THE HEFT — the learned ground; both hands lay inside it ── -->
+    <div class="instrument block">
+      <div class="eyebrow" id="heft-h">Ova where <span class="mk" aria-hidden="true">▸</span>  the heft<span class="cursor" aria-hidden="true"></span></div>
+      <div id="map" role="application" aria-label="Ordnance Survey map of the playing grounds"></div>
+
+      <!-- the first reach of the hand: set the middle of the ground. even halves. -->
+      <div class="btn-row split" style="margin-top:14px">
+        <button class="plain" id="centre">Centre on me</button>
+        <button class="plain" id="centrehand" aria-pressed="false">Centre by hand</button>
+      </div>
+      <!-- then its reach. it bounds the random flight — and, by eye, the hand's
+           own choosing and a Claude's: the whole egg-ground, staked. -->
+      <div class="key-items" id="radii" style="margin-top:14px">
+        <label><input type="radio" name="radius" value="250"><span>250 m — a short toss; several games to one walk</span></label>
+        <label><input type="radio" name="radius" value="500" checked><span>500 m — to the horizon and a little past it</span></label>
+        <label><input type="radio" name="radius" value="1000"><span>1 km — a fair fling</span></label>
+        <label><input type="radio" name="radius" value="3000"><span>3 km — an expedition; pack accordingly</span></label>
+      </div>
+      <p class="hint">the heft is the ground you'll play upon & every egg, flown or set, lands inside it.</p>
+      <p class="mapnote" id="mapnote"></p>
+    </div>
+
+    <!-- ── BLOCK TWO · THE LAYING — two ways to set an egg down inside the heft ── -->
+    <div class="instrument block laying">
+      <div class="eyebrow">the laying</div>
+
+      <!-- BY CHANCE — Gallinago drops where she likes, within the heft. the fat
+           flight key, and snug beside it the snipe that says seen / unseen. -->
+      <div class="door">
+        <div class="door-title"><i>by chance</i> · Gallinago drops where she likes, within the heft</div>
+        <div class="snipe-row">
+          <button class="plain" id="dart">Fly Gallinago</button>
+          <button class="plain snipe-toggle" id="sealedbtn" aria-pressed="false"
+                  title="Seen or unseen — does she let you watch where she lands?"
+                  aria-label="She lands unseen. Press to let her be seen.">
+            <span class="sealed-word">unseen</span>
+            <span class="egg-icon" id="sealedsnipe" aria-hidden="true"></span>
+          </button>
+        </div>
+        <!-- the source of truth still hides in a checkbox; the snipe flips it,
+             exactly as the metres key flips its own hidden box. -->
+        <input type="checkbox" id="sealed" checked hidden>
+        <p class="hint">she drops, unbidden, somewhere inside the heft. <i>unseen</i>, she lands where no glance can follow — so you must walk, not peek. press the snipe to let her be <i>seen</i>, and watch where she falls.</p>
+      </div>
+
+      <!-- BY HAND — you (or a Claude) choose the exact spot, to send on -->
+      <div class="door">
+        <div class="door-title"><i>by hand</i> · you choose the exact spot</div>
+        <div class="btn-row split">
+          <button class="plain" id="setterbtn" aria-pressed="false">Point to it</button>
+          <button class="plain" id="lay" disabled>Seal &amp; lay</button>
+        </div>
+        <p class="hint">seal it, and the map forgets at once — nothing left but the code, ready to send.</p>
+      </div>
+
+      <div class="key" id="eggrow" hidden>
+        <div class="key-title">the egg — laid &amp; sealed</div>
+        <div class="seal-row" style="margin-top:10px">
+          <span class="egg-specimen" id="eggspecimen" aria-hidden="true"></span>
+          <input id="eggout" readonly spellcheck="false" aria-label="Egg code">
+          <button class="plain" id="copyegg" style="flex:none">Copy</button>
+        </div>
+        <div class="btn-row" style="margin-top:10px">
+          <button class="plain" id="towalk">walk it yourself</button>
+        </div>
+        <p class="hint"><i>Copy</i> sends it to another, to lob into their own compass · <i>walk it yourself</i> carries it to the nest and turns the instrument to Ova here ▸.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<p class="dz-keeper">Gallinago points; she does not survey. She'll send you over bog, farm, crag and quarry without a qualm — so follow her only where you'd gladly walk anyway. The Particular will keep.</p>
+
+<footer>
+  <span>Mr Dogbert, First Cause · or-ni-thology</span>
+ <span id="attrib">Map data © OpenStreetMap contributors</span>
+</footer>
+
+<script>
+/* ╔══════════════════════════════════════════════════════════════╗
+   ║  CONFIG — the only part that needs your hands.               ║
+   ╚══════════════════════════════════════════════════════════════╝ */
+var CONFIG = {
+
+  /* 1 ▸ PASTE YOUR OS DATA HUB KEY between the quotes.
+         With it: glorious 1:25 000 Leisure mapping.
+         Without it: a plain street map stands in, politely.       */
+  osKey: "As1adHWCaLGdgw4V0ijcwgguTsvzBh7g",
+
+  /* 2 ▸ HOME. Where the map opens: the Centre of Britain,
+         Haltwhistle variation. There is a bronze disc, a
+         laundrette, and a fridge magnet, so it must be true.
+         The Ordnance Survey disagrees, which is its loss.    */
+  home: { lat: 54.9701, lon: -2.4571 },
+
+  /* 3 ▸ ARRIVAL. How close (metres) counts as standing upon
+         the Particular. 30 is sporting; GPS wobbles ~5–10 m.      */
+  arriveWithin: 30
+};
+
+/* ════════════════ OVA EGG GENERATOR (ported, vanilla) ════════════════
+   the estate's egg engine, lifted faithfully from OVA·TRANSMISSOR — a
+   Hügelschäffer shell, a mulberry32 freckle-scatter crowded toward the
+   broad pole. here it lays one bird only: the snipe, Gallinago
+   gallinago, the very needle. same seed → same egg, every time.      */
+var OVA=(function(){
+  var FAINT="#6b5d49";
+  function mulberry32(a){return function(){a|=0;a=(a+0x6d2b79f5)|0;var t=Math.imul(a^(a>>>15),1|a);t=(t+Math.imul(t^(t>>>7),61|t))^t;return((t^(t>>>14))>>>0)/4294967296;};}
+  function lerp(a,b,t){return a+(b-a)*t;}
+  function hexToRgb(h){var n=parseInt(h.slice(1),16);return[(n>>16)&255,(n>>8)&255,n&255];}
+  function rgbToHex(r,g,b){function c(x){return Math.max(0,Math.min(255,Math.round(x))).toString(16).padStart(2,"0");}return"#"+c(r)+c(g)+c(b);}
+  function mixHex(h1,h2,t){var a=hexToRgb(h1),b=hexToRgb(h2);return rgbToHex(lerp(a[0],b[0],t),lerp(a[1],b[1],t),lerp(a[2],b[2],t));}
+  var CAT={ snipe:{len:39,wid:28,d:0.175,ground:"#8f8a52",shade:"#6f6a3c",blot:"#3d2516",grey:"#9a9180",density:40,capward:0.92,coarse:0.75} };
+  function eggPath(cx,cy,hl,hw,d,n){n=n||140;var p=[];for(var i=0;i<=n;i++){var t=(i/n)*Math.PI*2,ex=Math.cos(t),ey=Math.sin(t)*Math.exp(-d*Math.cos(t));p.push([cx+ey*hw,cy+ex*hl]);}return "M "+p.map(function(q){return q[0].toFixed(2)+","+q[1].toFixed(2);}).join(" ")+" Z";}
+  function polyPoints(cx,cy,hl,hw,d,n){n=n||90;var p=[];for(var i=0;i<=n;i++){var t=(i/n)*Math.PI*2,ex=Math.cos(t),ey=Math.sin(t)*Math.exp(-d*Math.cos(t));p.push([cx+ey*hw,cy+ex*hl]);}return p;}
+  function inPoly(px,py,poly){var c=false;for(var i=0,j=poly.length-1;i<poly.length;j=i++){var xi=poly[i][0],yi=poly[i][1],xj=poly[j][0],yj=poly[j][1];if(((yi>py)!==(yj>py))&&(px<((xj-xi)*(py-yi))/(yj-yi)+xi))c=!c;}return c;}
+  function speckles(m,seed,cx,cy,hl,hw){
+    var rng=mulberry32((seed^Math.round(m.d*1000)^(m.len<<3))>>>0);
+    var poly=polyPoints(cx,cy,hl,hw,m.d),top=cy-hl,bot=cy+hl,left=cx-hw,right=cx+hw;
+    var deep=[],faint=[],pepper=[],tBig=Math.round(m.density*0.55),tSm=Math.round(m.density*1.5),tries=0;
+    while(deep.length+faint.length<tBig&&tries<5000){tries++;var qx=lerp(left,right,rng()),qy=lerp(top,bot,rng());if(!inPoly(qx,qy,poly))continue;var fr=(qy-top)/(bot-top);var ac=Math.pow(1-fr,lerp(0.6,2.4,m.capward))+0.1;if(rng()>ac)continue;var sb=lerp(2.4,9.5,m.coarse)*(0.55+0.6*(1-fr));var r0=sb*lerp(0.6,1.25,rng());var rx=r0*lerp(0.8,1.35,rng()),ry=r0*lerp(0.6,1.0,rng()),rot=rng()*180;(rng()<0.6?deep:faint).push([qx,qy,rx,ry,rot]);}
+    tries=0;
+    while(pepper.length<tSm&&tries<7000){tries++;var qx2=lerp(left,right,rng()),qy2=lerp(top,bot,rng());if(!inPoly(qx2,qy2,poly))continue;var fr2=(qy2-top)/(bot-top);var ac2=Math.pow(1-fr2,lerp(0.4,1.6,m.capward))+0.22;if(rng()>ac2)continue;pepper.push([qx2,qy2,lerp(0.6,2.0,rng())]);}
+    return {deep:deep,faint:faint,pepper:pepper};
+  }
+  function svg(species,seed,opts){
+    opts=opts||{};var m=CAT[species]||CAT.snipe;var ppm=opts.pxPerMm||2.5;
+    var hl=(m.len/2)*ppm,hw=(m.wid/2)*ppm,pad=opts.pad!=null?opts.pad:hw*0.18+2;
+    var cx=hw+pad,cy=hl+pad,W=(hw+pad)*2,H=(hl+pad)*2;
+    var path=eggPath(cx,cy,hl,hw,m.d),sp=speckles(m,seed>>>0,cx,cy,hl,hw),top=cy-hl,bot=cy+hl;
+    var uid=(opts.id||(species+seed)).replace(/[^a-z0-9]/gi,""),grad="shell_"+uid,clip="clip_"+uid,rim=opts.rim!=null?opts.rim:1.4;
+    var s='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+W.toFixed(1)+' '+H.toFixed(1)+'"';
+    if(opts.width)s+=' width="'+opts.width+'" height="'+(opts.width*H/W).toFixed(1)+'"';
+    s+='>';
+    s+='<defs><radialGradient id="'+grad+'" cx="42%" cy="32%" r="78%"><stop offset="0%" stop-color="'+mixHex(m.ground,"#ffffff",0.35)+'"/><stop offset="55%" stop-color="'+m.ground+'"/><stop offset="100%" stop-color="'+m.shade+'"/></radialGradient><clipPath id="'+clip+'"><path d="'+path+'"/></clipPath></defs>';
+    s+='<path d="'+path+'" fill="url(#'+grad+')" stroke="'+FAINT+'" stroke-width="'+rim+'" opacity="0.97"/>';
+    s+='<g clip-path="url(#'+clip+')">';
+    sp.faint.forEach(function(b){s+='<ellipse cx="'+b[0].toFixed(2)+'" cy="'+b[1].toFixed(2)+'" rx="'+b[2].toFixed(2)+'" ry="'+b[3].toFixed(2)+'" transform="rotate('+b[4].toFixed(1)+' '+b[0].toFixed(2)+' '+b[1].toFixed(2)+')" fill="'+m.grey+'" opacity="0.42"/>';});
+    sp.deep.forEach(function(b){s+='<ellipse cx="'+b[0].toFixed(2)+'" cy="'+b[1].toFixed(2)+'" rx="'+b[2].toFixed(2)+'" ry="'+b[3].toFixed(2)+'" transform="rotate('+b[4].toFixed(1)+' '+b[0].toFixed(2)+' '+b[1].toFixed(2)+')" fill="'+m.blot+'" opacity="0.62"/>';});
+    sp.pepper.forEach(function(b){s+='<circle cx="'+b[0].toFixed(2)+'" cy="'+b[1].toFixed(2)+'" r="'+b[2].toFixed(2)+'" fill="'+m.blot+'" opacity="0.4"/>';});
+    s+='<ellipse cx="'+cx.toFixed(2)+'" cy="'+bot.toFixed(2)+'" rx="'+(hw*1.05).toFixed(2)+'" ry="'+(hl*0.5).toFixed(2)+'" fill="'+m.shade+'" opacity="0.14"/>';
+    s+='<ellipse cx="'+(cx-hw*0.32).toFixed(2)+'" cy="'+(top+hl*0.5).toFixed(2)+'" rx="'+(hw*0.28).toFixed(2)+'" ry="'+(hl*0.26).toFixed(2)+'" fill="#fffaf0" opacity="0.22"/>';
+    s+='</g>';
+    s+='<path d="'+path+'" fill="none" stroke="'+FAINT+'" stroke-width="'+rim+'" opacity="0.55"/>';
+    s+='</svg>';
+    return s;
+  }
+  /* djb2 — turn any string (an EGG code, a coordinate) into a seed */
+  function seedFrom(str){var h=5381;str=String(str);for(var i=0;i<str.length;i++){h=((h<<5)+h+str.charCodeAt(i))>>>0;}return h>>>0;}
+  return { svg:svg, seedFrom:seedFrom };
+})();
+
+/* ════════════════ GEODESY (tested) ════════════════ */
+var GEO=(function(){var d2r=Math.PI/180,r2d=180/Math.PI;var AIRY={a:6377563.396,b:6356256.909};var WGS84={a:6378137.0,b:6356752.3142};var H={tx:446.448,ty:-125.157,tz:542.060,rx:0.1502,ry:0.2470,rz:0.8421,s:-20.4894};function neg(t){return{tx:-t.tx,ty:-t.ty,tz:-t.tz,rx:-t.rx,ry:-t.ry,rz:-t.rz,s:-t.s}}
+function toCart(lat,lon,ell){var p=lat*d2r,l=lon*d2r;var e2=1-(ell.b*ell.b)/(ell.a*ell.a);var nu=ell.a/Math.sqrt(1-e2*Math.sin(p)*Math.sin(p));return{x:nu*Math.cos(p)*Math.cos(l),y:nu*Math.cos(p)*Math.sin(l),z:nu*(1-e2)*Math.sin(p)}}
+function fromCart(p,ell){var e2=1-(ell.b*ell.b)/(ell.a*ell.a);var pr=Math.sqrt(p.x*p.x+p.y*p.y);var phi=Math.atan2(p.z,pr*(1-e2)),pp=7,nu;for(var i=0;i<12&&Math.abs(phi-pp)>1e-12;i++){nu=ell.a/Math.sqrt(1-e2*Math.sin(phi)*Math.sin(phi));pp=phi;phi=Math.atan2(p.z+e2*nu*Math.sin(phi),pr)}return{lat:phi*r2d,lon:Math.atan2(p.y,p.x)*r2d}}
+function helm(p,t){var s1=t.s/1e6+1,rx=t.rx/3600*d2r,ry=t.ry/3600*d2r,rz=t.rz/3600*d2r;return{x:t.tx+s1*(p.x-rz*p.y+ry*p.z),y:t.ty+s1*(rz*p.x+p.y-rx*p.z),z:t.tz+s1*(-ry*p.x+rx*p.y+p.z)}}
+function o2w(lat,lon){return fromCart(helm(toCart(lat,lon,AIRY),H),WGS84)}
+function w2o(lat,lon){return fromCart(helm(toCart(lat,lon,WGS84),neg(H)),AIRY)}
+var a=AIRY.a,b=AIRY.b,F0=0.9996012717,lat0=49*d2r,lon0=-2*d2r,N0=-100000,E0=400000;var e2=1-(b*b)/(a*a),n=(a-b)/(a+b),n2=n*n,n3=n*n*n;
+function merid(phi){var Ma=(1+n+1.25*n2+1.25*n3)*(phi-lat0);var Mb=(3*n+3*n2+(21/8)*n3)*Math.sin(phi-lat0)*Math.cos(phi+lat0);var Mc=((15/8)*n2+(15/8)*n3)*Math.sin(2*(phi-lat0))*Math.cos(2*(phi+lat0));var Md=(35/24)*n3*Math.sin(3*(phi-lat0))*Math.cos(3*(phi+lat0));return b*F0*(Ma-Mb+Mc-Md)}
+function ll2en(lat,lon){var phi=lat*d2r,lam=lon*d2r,s=Math.sin(phi),c=Math.cos(phi),t=Math.tan(phi);var nu=a*F0/Math.sqrt(1-e2*s*s),rho=a*F0*(1-e2)/Math.pow(1-e2*s*s,1.5),eta2=nu/rho-1;var M=merid(phi),t2=t*t,t4=t2*t2;var I=M+N0,II=nu/2*s*c,III=nu/24*s*Math.pow(c,3)*(5-t2+9*eta2),IIIA=nu/720*s*Math.pow(c,5)*(61-58*t2+t4);var IV=nu*c,V=nu/6*Math.pow(c,3)*(nu/rho-t2),VI=nu/120*Math.pow(c,5)*(5-18*t2+t4+14*eta2-58*t2*eta2);var dL=lam-lon0;return{E:E0+IV*dL+V*Math.pow(dL,3)+VI*Math.pow(dL,5),N:I+II*dL*dL+III*Math.pow(dL,4)+IIIA*Math.pow(dL,6)}}
+function en2ll(E,N){var phi=lat0,M=0;for(var i=0;i<40;i++){phi=(N-N0-M)/(a*F0)+phi;M=merid(phi);if(Math.abs(N-N0-M)<1e-5)break}var s=Math.sin(phi),c=Math.cos(phi),t=Math.tan(phi),sec=1/c;var nu=a*F0/Math.sqrt(1-e2*s*s),rho=a*F0*(1-e2)/Math.pow(1-e2*s*s,1.5),eta2=nu/rho-1;var t2=t*t,t4=t2*t2,t6=t4*t2;var VII=t/(2*rho*nu),VIII=t/(24*rho*Math.pow(nu,3))*(5+3*t2+eta2-9*t2*eta2),IX=t/(720*rho*Math.pow(nu,5))*(61+90*t2+45*t4);var X=sec/nu,XI=sec/(6*Math.pow(nu,3))*(nu/rho+2*t2),XII=sec/(120*Math.pow(nu,5))*(5+28*t2+24*t4),XIIA=sec/(5040*Math.pow(nu,7))*(61+662*t2+1320*t4+720*t6);var dE=E-E0;return{lat:(phi-VII*dE*dE+VIII*Math.pow(dE,4)-IX*Math.pow(dE,6))*r2d,lon:(lon0+X*dE-XI*Math.pow(dE,3)+XII*Math.pow(dE,5)-XIIA*Math.pow(dE,7))*r2d}}
+function parseGR(s){s=String(s).trim().toUpperCase().replace(/[^A-Z0-9]/g,"");var m=s.match(/^([A-HJ-Z]{2})(\d{2,10})$/);if(!m)return null;var d=m[2];if(d.length%2)return null;var l1=m[1].charCodeAt(0)-65,l2=m[1].charCodeAt(1)-65;if(l1>7)l1--;if(l2>7)l2--;var e1=((((l1-2)%5)+5)%5)*5+(l2%5);var n1=(19-Math.floor(l1/5)*5)-Math.floor(l2/5);if(e1<0||e1>6||n1<0||n1>12)return null;var h=d.length/2,sc=Math.pow(10,5-h);var E=e1*1e5+parseInt(d.slice(0,h),10)*sc+sc/2,N=n1*1e5+parseInt(d.slice(h),10)*sc+sc/2;var os=en2ll(E,N);return o2w(os.lat,os.lon)}
+function toGR(lat,lon,f){f=f||8;var os=w2o(lat,lon),en=ll2en(os.lat,os.lon),E=en.E,N=en.N;if(E<0||E>=7e5||N<0||N>=13e5)return null;var e1=Math.floor(E/1e5),n1=Math.floor(N/1e5);var l1=(19-n1)-((19-n1)%5)+Math.floor((e1+10)/5);var l2=((19-n1)*5)%25+(e1%5);if(l1>7)l1++;if(l2>7)l2++;var h=f/2,sc=Math.pow(10,5-h);var eD=String(Math.floor((E%1e5)/sc)).padStart(h,"0"),nD=String(Math.floor((N%1e5)/sc)).padStart(h,"0");return String.fromCharCode(l1+65)+String.fromCharCode(l2+65)+" "+eD+" "+nD}
+function parseLL(s){var m=String(s).trim().match(/^(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)$/);if(!m)return null;var la=parseFloat(m[1]),lo=parseFloat(m[2]);if(la<49||la>61||lo<-9||lo>2)return null;return{lat:la,lon:lo}}
+function dist(a1,o1,a2,o2){var R=6371008.8,p1=a1*d2r,p2=a2*d2r,dp=(a2-a1)*d2r,dl=(o2-o1)*d2r;var h=Math.sin(dp/2)*Math.sin(dp/2)+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)*Math.sin(dl/2);return 2*R*Math.asin(Math.sqrt(h))}
+function brg(a1,o1,a2,o2){var p1=a1*d2r,p2=a2*d2r,dl=(o2-o1)*d2r;var y=Math.sin(dl)*Math.cos(p2),x=Math.cos(p1)*Math.sin(p2)-Math.sin(p1)*Math.cos(p2)*Math.cos(dl);return((Math.atan2(y,x)*r2d)+360)%360}
+/* ── THE EGG ─────────────────────────────────────────────
+   a coordinate, scrambled politely. easting & northing to
+   the metre are packed into 41 bits, run through a 4-round
+   Feistel whisk (an envelope, not a safe — enough that no
+   glance can read a grid ref out of it, and near places
+   lay unalike eggs), checksummed, and laid as 12 letters
+   of Crockford base32: no I, no L, no O, no U — so a code
+   can be read aloud across a room, or down a phone, and
+   never spells anything regrettable.                      */
+var B32="0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+var ROOST=["gallinago","chalybeate","winnow","dogbert"];
+function djb2(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))|0;return h>>>0}
+function whisk(r,k){return djb2(k+":"+r)%16777216}
+function packBits(parts){var bits=[],s="",i,j;for(i=0;i<parts.length;i++){for(j=parts[i][1]-1;j>=0;j--)bits.push((parts[i][0]>>>j)&1)}for(i=0;i<bits.length;i+=5){var x=0;for(j=0;j<5;j++)x=x*2+bits[i+j];s+=B32[x]}return s}
+function unpackBits(str,widths){var bits=[],i,j;for(i=0;i<str.length;i++){var x=B32.indexOf(str[i]);if(x<0)return null;for(j=4;j>=0;j--)bits.push((x>>>j)&1)}var out=[],k=0;for(i=0;i<widths.length;i++){var v=0;for(j=0;j<widths[i];j++)v=v*2+bits[k++];out.push(v)}return out}
+function layEgg(lat,lon){
+  var os=w2o(lat,lon),en=ll2en(os.lat,os.lon);
+  var E=Math.round(en.E),N=Math.round(en.N);
+  if(E<0||E>=7e5||N<0||N>=13e5)return null;          // off the national grid
+  var c=E*2097152+N;                                  // E·2^21 + N, < 2^41
+  var hi=Math.floor(c/16777216),lo=c%16777216;        // two 24-bit halves
+  for(var i=0;i<4;i++){var t=lo;lo=hi^whisk(lo,ROOST[i]);hi=t}
+  var sum=djb2("yolk|"+c)%4096;                       // 12-bit yolk check
+  var s=packBits([[hi,24],[lo,24],[sum,12]]);         // 60 bits → 12 chars
+  return "EGG-"+s.slice(0,4)+"-"+s.slice(4,8)+"-"+s.slice(8);
+}
+function hatchEgg(s){
+  var z=String(s).toUpperCase().replace(/O/g,"0").replace(/[IL]/g,"1").replace(/[^A-Z0-9]/g,"");
+  var m=z.match(/^EGG([0-9A-Z]{12})$/);if(!m)return null;
+  var u=unpackBits(m[1],[24,24,12]);if(!u)return null;
+  var hi=u[0],lo=u[1],sum=u[2];
+  for(var i=3;i>=0;i--){var t=hi;hi=lo^whisk(hi,ROOST[i]);lo=t}
+  var c=hi*16777216+lo;
+  if(djb2("yolk|"+c)%4096!==sum)return null;          // addled — won't hatch
+  var E=Math.floor(c/2097152),N=c%2097152;
+  if(E>=7e5||N>=13e5)return null;
+  var ll=en2ll(E,N);return o2w(ll.lat,ll.lon);
+}
+return{parseAny:function(s){if(/^\s*EGG/i.test(String(s)))return hatchEgg(s);return parseLL(s)||parseGR(s)},toGR:toGR,dist:dist,brg:brg,layEgg:layEgg,hatchEgg:hatchEgg}})();
+
+/* ════════════════ STATE ════════════════ */
+var state = {
+  target: null,        // {lat, lon} — the Particular (possibly sealed)
+  sealedTarget: true,  // whether the coordinate is hidden
+  here: null,          // {lat, lon} — Alison & Mr Dogbert
+  heading: null,       // device heading, degrees from north
+  arrived: false,
+  shownAngle: 0,       // current needle rotation (0 = canonical pose)
+  watchId: null
+};
+
+var $ = function(id){ return document.getElementById(id); };
+var needle = $("needle"), reading = $("reading"), statusEl = $("status");
+
+/* ════════════════ COMPASS FACE ════════════════ */
+(function ticks(){
+  var g = $("ticks"), s = "";
+  for (var d = 0; d < 360; d += 10) {
+    var maj = d % 90 === 0, r1 = maj ? 138 : 144, r2 = 150;
+    var a = (d - 90) * Math.PI / 180;
+    s += '<line x1="'+(170+r1*Math.cos(a)).toFixed(1)+'" y1="'+(170+r1*Math.sin(a)).toFixed(1)+
+         '" x2="'+(170+r2*Math.cos(a)).toFixed(1)+'" y2="'+(170+r2*Math.sin(a)).toFixed(1)+'"/>';
+  }
+  g.innerHTML = s;
+})();
+
+/* needle aims at compass bearing B given device heading H.
+   in the canonical pose the bill sits at bearing 285.5° —
+   west, raised 15.5° toward north, as a comfortable snipe's
+   should. the bill is the true pointer; rest = canonical.   */
+var BILL_REST = 285.5;
+function aimNeedle(){
+  var H = state.heading == null ? 0 : state.heading;
+  var B;
+  if (state.target && state.here) {
+    B = GEO.brg(state.here.lat, state.here.lon, state.target.lat, state.target.lon);
+  } else {
+    B = BILL_REST; // at rest, the snipe holds its own pose
+  }
+  var want = B - H - BILL_REST;
+  // rotate the short way round, accumulating, so 359→0 doesn't pirouette
+  var delta = ((want - state.shownAngle) % 360 + 540) % 360 - 180;
+  state.shownAngle += delta;
+  needle.style.setProperty("--r", state.shownAngle + "deg");
+  needle.style.transform = "rotate(" + state.shownAngle + "deg)";
+}
+
+/* ════════════════ WORDS FOR DISTANCE ════════════════ */
+function speak(){
+  if (!state.target) { reading.textContent = "resting · west"; reading.classList.remove("arrived"); return; }
+  if (!state.here)   { reading.textContent = "the Particular is set — press Gallinago GPS"; return; }
+  var d = GEO.dist(state.here.lat, state.here.lon, state.target.lat, state.target.lon);
+
+  if (d <= CONFIG.arriveWithin) { arrive(); return; }
+  state.arrived = false;
+  needle.classList.remove("winnowing");
+  reading.classList.remove("arrived");
+
+  if ($("metres").checked) { reading.textContent = Math.round(d) + " m"; return; }
+  reading.textContent =
+    d > 5000 ? "a long way off" :
+    d > 2500 ? "a proper walk away" :
+    d > 1200 ? "a mile, give or take" :
+    d > 600  ? "under a mile" :
+    d > 250  ? "getting warm" :
+    d > 80   ? "close — eyes up" :
+               "very close. look about you.";
+}
+
+function arrive(){
+  if (state.arrived) return;
+  state.arrived = true;
+  reading.textContent = "THE PARTICULAR — you have arrived";
+  reading.classList.add("arrived");
+  statusEl.textContent = "see the lichens. send word from here, if you like.";
+  needle.classList.add("winnowing");
+  winnow();
+  if (state.target) {
+    var gr = GEO.toGR(state.target.lat, state.target.lon, 8);
+    dropSnipeMarker(state.target, "The Particular" + (gr ? " · " + gr : ""));
+    revealFind(state.target);
+  }
+}
+
+/* the drumming of the outer tail feathers, approximately.
+   conjured on the device from oscillators — no internet, no
+   recording. browsers keep synthesized sound locked until a
+   finger has blessed the page, hence ensureAudio() on every
+   button. iPhones also gag it under the ring/silent switch. */
+var actx = null;
+function ensureAudio(){
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === "suspended") actx.resume();
+  } catch (e) {}
+}
+function winnow(){
+  try {
+    ensureAudio();
+    var t0 = actx.currentTime;
+    for (var k = 0; k < 2; k++) {
+      var t = t0 + k * 1.7;
+      var osc = actx.createOscillator(); osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(760, t);
+      osc.frequency.exponentialRampToValueAtTime(340, t + 1.4);
+      var bp = actx.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 560; bp.Q.value = 1.6;
+      var g = actx.createGain(); g.gain.value = 0;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.3, t + 0.15);
+      g.gain.linearRampToValueAtTime(0.0001, t + 1.45);
+      var lfo = actx.createOscillator(); lfo.frequency.value = 8;
+      var lg = actx.createGain(); lg.gain.value = 0.2;
+      lfo.connect(lg); lg.connect(g.gain);
+      osc.connect(bp); bp.connect(g); g.connect(actx.destination);
+      osc.start(t); osc.stop(t + 1.5); lfo.start(t); lfo.stop(t + 1.5);
+    }
+  } catch (e) { /* a silent winnow is still a winnow */ }
+}
+
+/* the scaap: the short rasping note a snipe gives when
+   flushed — i.e., when handed somewhere to go. one blip,
+   ~150 ms, so a seal is *heard* as well as seen.        */
+function scaap(){
+  try {
+    ensureAudio();
+    var t = actx.currentTime;
+    var o = actx.createOscillator(); o.type = "sawtooth";
+    o.frequency.setValueAtTime(1400, t);
+    o.frequency.exponentialRampToValueAtTime(880, t + 0.12);
+    var bp = actx.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 1150; bp.Q.value = 2;
+    var g = actx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.18, t + 0.02);
+    g.gain.linearRampToValueAtTime(0.0001, t + 0.15);
+    o.connect(bp); bp.connect(g); g.connect(actx.destination);
+    o.start(t); o.stop(t + 0.17);
+  } catch (e) { /* a silent scaap is, regrettably, nothing */ }
+}
+
+/* ════════════════ SEALING THE PARTICULAR ════════════════ */
+function stirNeedle(){
+  // restart the one-shot stir even if it ran a moment ago
+  needle.classList.remove("stirring");
+  void $("compass").getBoundingClientRect();   // force reflow (SVG-safe)
+  needle.classList.add("stirring");
+}
+needle.addEventListener("animationend", function(e){
+  if (e.animationName === "stir") needle.classList.remove("stirring");
+});
+
+function setTarget(p, sealed, how){
+  state.target = p;
+  state.sealedTarget = sealed;
+  state.arrived = false;
+  needle.classList.remove("winnowing");
+  clearSnipeMarker();
+  if ($("find")) $("find").hidden = true;   // a new Particular: last find folded away
+  /* whatever primes the compass sits in the nest, visibly —
+     the egg is opaque, so showing it confesses nothing */
+  $("nest").value = GEO.layEgg(p.lat, p.lon) || "";
+  nestGlow();
+  if (!sealed) {
+    var gr = GEO.toGR(p.lat, p.lon, 8);
+    dropSnipeMarker(p, "The Particular" + (gr ? " · " + gr : ""));
+    statusEl.textContent = how + " · " + (gr || (p.lat.toFixed(5) + ", " + p.lon.toFixed(5)));
+  } else {
+    statusEl.textContent = how + " · Gallinago knows; you don't.";
+  }
+  aimNeedle(); speak();
+  stirNeedle(); scaap();   // every new Particular is acknowledged, aloud and in motion
+}
+
+var eggCount = 0;
+function ordinal(n){
+  var w = ["first","second","third","fourth","fifth","sixth","seventh",
+           "eighth","ninth","tenth","eleventh","twelfth"];
+  return w[n-1] || (n + "th");
+}
+
+/* the nest glows lichen when the egg it holds is the very egg
+   priming the needle — edit the code and the glow withdraws,
+   honestly, until the seal is pressed again */
+function nestGlow(){
+  var primed = state.target ? GEO.layEgg(state.target.lat, state.target.lon) : null;
+  $("nest").classList.toggle("primed", !!primed && $("nest").value.trim().toUpperCase() === primed);
+}
+$("nest").addEventListener("input", nestGlow);
+
+$("seal").addEventListener("click", function(){
+  ensureAudio();
+  var raw = $("nest").value;
+  if (!raw.trim()) { statusEl.textContent = "the nest is empty."; return; }
+  var p = GEO.hatchEgg(raw);
+  if (!p) {
+    var standing = state.target ? " the old egg still stands." : "";
+    if (/^\s*EGG/i.test(raw)) statusEl.textContent = "that egg won't hatch — a letter has gone astray." + standing;
+    else statusEl.textContent = "only eggs sit in this nest — EGG-····-····-···· — the map lays them." + standing;
+    return;
+  }
+  $("nest").blur();
+  eggCount++;
+  setTarget(p, true, "sealed — the " + ordinal(eggCount) + " egg");
+});
+$("nest").addEventListener("keydown", function(e){ if (e.key === "Enter") $("seal").click(); });
+
+/* releasing her: the only way to un-know. the target is
+   forgotten, the marker lifted, the nest emptied, and the
+   snipe returns to its canonical pose, facing west.       */
+$("release").addEventListener("click", function(){
+  ensureAudio();
+  if (!state.target) {
+    /* no Particular to forget — but a stray scribble may still sit
+       in the nest (Dad's, perhaps). tidy it away regardless. */
+    if ($("nest").value) {
+      $("nest").value = "";
+      nestGlow();
+      statusEl.textContent = "the nest is cleared. Gallinago was already at rest, facing west.";
+    } else {
+      statusEl.textContent = "Gallinago is already at rest, facing west.";
+    }
+    return;
+  }
+  state.target = null;
+  state.sealedTarget = true;
+  state.arrived = false;
+  needle.classList.remove("winnowing");
+  clearSnipeMarker();
+  if ($("find")) $("find").hidden = true;   // released: the find goes with her
+  $("nest").value = "";        // the nest is emptied as she's released
+  nestGlow();
+  aimNeedle(); speak();
+  statusEl.textContent = "the nest is emptied. Gallinago rests again, facing west.";
+});
+
+/* ════════════════ THE NEEDLE'S SENSES ════════════════ */
+$("wake").addEventListener("click", function(){
+  ensureAudio();
+  function listen(){
+    var evt = ("ondeviceorientationabsolute" in window) ? "deviceorientationabsolute" : "deviceorientation";
+    window.addEventListener(evt, function(e){
+      var h = null;
+      if (typeof e.webkitCompassHeading === "number") h = e.webkitCompassHeading;
+      else if (e.alpha != null && (e.absolute || evt === "deviceorientationabsolute")) h = 360 - e.alpha;
+      if (h != null) { state.heading = (h + 360) % 360; aimNeedle(); }
+    });
+    statusEl.textContent = "Gallinago is awake.";
+    $("wake").disabled = true;
+    $("wake").setAttribute("aria-pressed", "true");
+    $("wake").textContent = "She's awake";
+  }
+  if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === "function") {
+    DeviceOrientationEvent.requestPermission().then(function(r){
+      if (r === "granted") listen();
+      else statusEl.textContent = "Gallinago was refused her senses. north-up it is.";
+    }).catch(function(){ statusEl.textContent = "no compass here — Gallinago will assume you face north."; });
+  } else if (window.DeviceOrientationEvent) {
+    listen();
+  } else {
+    statusEl.textContent = "no compass in this device — Gallinago will assume you face north.";
+  }
+});
+
+$("follow").addEventListener("click", function(){
+  ensureAudio();
+  if (!("geolocation" in navigator)) { statusEl.textContent = "this device won't say where you are."; return; }
+  if (state.watchId != null) return;
+  statusEl.textContent = "switching on the GPS — listening for your whereabouts…";
+  state.watchId = navigator.geolocation.watchPosition(function(pos){
+    var first = !state.here;   // the very first fix, to be confirmed aloud once
+    state.here = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+    drawHere();
+    aimNeedle(); speak();
+    /* watchPosition keeps the GPS on and re-fixes as you walk. On a phone
+       that has already granted the site location there is no prompt, so
+       the press used to land in silence. Confirm the first fix only — and
+       never trample an arrival, nor a live distance speak() has just set. */
+    if (first && !state.arrived) {
+      statusEl.textContent = state.target
+        ? "Gallinago has your whereabouts — she's pointing the way."
+        : "Gallinago has your whereabouts. Seal an egg to give her somewhere to point.";
+    }
+  }, function(err){
+    statusEl.textContent = "the GPS was refused or lost (" + err.message + "). the map still works.";
+  }, { enableHighAccuracy: true, maximumAge: 4000, timeout: 20000 });
+  $("follow").disabled = true; $("follow").setAttribute("aria-pressed", "true"); $("follow").textContent = "GPS on";
+});
+
+$("metres").addEventListener("change", speak);
+
+/* the button is the visible face of the hidden checkbox: press it,
+   the checkbox flips, and the change ripples out to speak() as before.
+   pressed (dark) means metres are spoken — the same latch as its kin. */
+$("metresbtn").addEventListener("click", function(){
+  var m = $("metres");
+  m.checked = !m.checked;
+  this.setAttribute("aria-pressed", m.checked ? "true" : "false");
+  /* the button names the voice a press would switch her into: "metres" for
+     the plain reckoning, "skulk" to return her to her vaguer voice — hunches,
+     give-or-takes, over-there-somewheres. (was "speak in metres", trimmed so
+     the worded reset key can sit beside it at an even half-width.) */
+  this.textContent = m.checked ? "skulk" : "metres";
+  m.dispatchEvent(new Event("change"));
+});
+
+/* the snipe toggle — seen or unseen, the crux of the sport. its hidden
+   checkbox #sealed stays the source of truth (checked = sealed = unseen,
+   the sporting default), flipped by the snipe exactly as #metres is flipped
+   by its key. lit lichen (aria-pressed) means SEEN: she lets you watch where
+   she falls. the word names the state she's *in*, not the one a press brings. */
+$("sealedbtn").addEventListener("click", function(){
+  ensureAudio();
+  var s = $("sealed");
+  s.checked = !s.checked;               // checked = unseen
+  var seen = !s.checked;
+  this.setAttribute("aria-pressed", seen ? "true" : "false");
+  this.querySelector(".sealed-word").textContent = seen ? "seen" : "unseen";
+  statusEl.textContent = seen
+    ? "she'll land seen — you may watch where she falls, then stroll over."
+    : "she'll land unseen — you must walk, not peek.";
+});
+
+/* poke the snipe and it clears its throat — a field test
+   for the winnow, no walking required. */
+$("compass").addEventListener("click", function(){
+  ensureAudio(); winnow();
+  if (!state.arrived) statusEl.textContent = "Gallinago clears her throat.";
+});
+
+/* ════════════════ THE MAP ════════════════ */
+var map, hereMarker = null, snipeMarker = null;
+var usingOS = !!CONFIG.osKey;
+var WIDE = { os: 1, osm: 6 };   // the amnesia zooms — wide enough to confess nothing
+
+(function buildMap(){
+  if (usingOS) {
+    var crs = new L.Proj.CRS("EPSG:27700",
+      "+proj=tmerc +lat_0=49 +lon_0=-2 +k=0.9996012717 +x_0=400000 +y_0=-100000 " +
+      "+ellps=airy +towgs84=446.448,-125.157,542.06,0.15,0.247,0.842,-20.489 +units=m +no_defs",
+      { resolutions: [896, 448, 224, 112, 56, 28, 14, 7, 3.5, 1.75],
+        origin: [-238375.0, 1376256.0] });
+    /* zoomSnap 1 + no bouncing past maxZoom: beyond its ten
+       defined resolutions the projection cannot place things,
+       and markers were seen to wander. now they may not.      */
+    map = L.map("map", { crs: crs, minZoom: 0, maxZoom: 9,
+      zoomSnap: 1, bounceAtZoomLimits: false, attributionControl: false,
+      gestureHandling: L.Browser.mobile,
+      gestureHandlingOptions: { text: {
+        touch: "two fingers to move the ground",
+        scroll: "ctrl + scroll to zoom",
+        scrollMac: "\u2318 + scroll to zoom" } } });
+    L.tileLayer("https://api.os.uk/maps/raster/v1/zxy/Leisure_27700/{z}/{x}/{y}.png?key=" + CONFIG.osKey,
+      { maxZoom: 9 }).addTo(map);
+    $("attrib").textContent = "Contains OS data © Crown copyright and database rights 2026";
+    $("mapnote").textContent = "1:25 000 Leisure. The proper italics.";
+    map.setView([CONFIG.home.lat, CONFIG.home.lon], 5);
+  } else {
+    map = L.map("map", { attributionControl: false, bounceAtZoomLimits: false,
+      gestureHandling: L.Browser.mobile,
+      gestureHandlingOptions: { text: {
+        touch: "two fingers to move the ground",
+        scroll: "ctrl + scroll to zoom",
+        scrollMac: "\u2318 + scroll to zoom" } } });
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
+    $("mapnote").textContent = "Stand-in street map. Paste your OS Data Hub key into CONFIG.osKey for the 1:25 000 Leisure sheet.";
+    map.setView([CONFIG.home.lat, CONFIG.home.lon], 12);
+  }
+})();
+
+/* the rust snipe herself, standing — drawn once and worn twice:
+   on the map as the marker, and on the release key as the wordless
+   bird. she has legs, and stands upon the Particular; the anchor is
+   at her feet. the tail is two feathers exactly, because the winnow
+   is made by the two outermost — ornithology insists.            */
+function snipeBirdSVG(w){
+  w = w || 30;
+  return '<svg width="' + w + '" height="' + (w * 36 / 60).toFixed(1) + '" viewBox="0 0 60 36" aria-hidden="true">' +
+    '<g fill="none" stroke="#9c4f2e" stroke-width="2.4" stroke-linecap="round">' +
+    '<ellipse cx="36" cy="20" rx="14" ry="9"/><circle cx="22" cy="13" r="5"/>' +
+    '<line x1="17" y1="14" x2="2" y2="17"/><circle cx="21" cy="12" r="1.4" fill="#9c4f2e" stroke="none"/>' +
+    '<g stroke-width="1.8"><line x1="31" y1="28" x2="29.5" y2="34"/><line x1="38" y1="28" x2="37" y2="34"/>' +
+    '<line x1="29.5" y1="34" x2="25.5" y2="35"/><line x1="37" y1="34" x2="33" y2="35"/></g>' +
+    '<g stroke-width="1.6"><line x1="48" y1="16" x2="56" y2="11"/><line x1="49" y1="18" x2="57" y2="15"/></g>' +
+    '</g></svg>';
+}
+function snipeIcon(){
+  return L.divIcon({ className: "snipe-marker", iconSize: [30, 18], iconAnchor: [15, 17], html: snipeBirdSVG(30) });
+}
+function dropSnipeMarker(p, label){
+  clearSnipeMarker();
+  snipeMarker = L.marker([p.lat, p.lon], { icon: snipeIcon() }).addTo(map).bindPopup(label);
+}
+function clearSnipeMarker(){ if (snipeMarker) { map.removeLayer(snipeMarker); snipeMarker = null; } }
+function drawHere(){
+  if (!state.here) return;
+  if (!hereMarker) {
+    hereMarker = L.circleMarker([state.here.lat, state.here.lon],
+      { radius: 5, color: "#473c30", weight: 1.5, fillColor: "#f7f5ef", fillOpacity: 1 }).addTo(map).bindPopup("Alison & Mr Dogbert");
+  } else hereMarker.setLatLng([state.here.lat, state.here.lon]);
+}
+
+/* ════════════════ THE THROW ════════════════ */
+var throwCentre = null, throwCircle = null, throwHow = null;  // "you" | "hand" | "map"
+
+function radiusChosen(){
+  var r = document.querySelector('input[name="radius"]:checked');
+  return r ? +r.value : 500;
+}
+function radiusLabel(R){ return R >= 1000 ? (R/1000) + " km" : R + " m"; }
+function drawThrowCircle(){
+  if (throwCircle) { map.removeLayer(throwCircle); throwCircle = null; }
+  if (!throwCentre) return;
+  throwCircle = L.circle([throwCentre.lat, throwCentre.lon], {
+    radius: radiusChosen(), color: "#9c4f2e", weight: 2, opacity: 0.95, dashArray: "6 5",
+    fillColor: "#9c4f2e", fillOpacity: 0.06, interactive: false
+  }).addTo(map);
+}
+Array.prototype.forEach.call(document.querySelectorAll('input[name="radius"]'), function(el){
+  el.addEventListener("change", drawThrowCircle);
+});
+
+/* the hand must be armed before it may centre anything —
+   an idle click on the map is only a click. modes do not
+   hide in checkboxes elsewhere; they are pressed, visibly. */
+var centreArmed = false;
+function armCentre(on){
+  centreArmed = on;
+  var b = $("centrehand");
+  b.setAttribute("aria-pressed", on ? "true" : "false");
+  b.textContent = on ? "Touch the map…" : "Centre by hand";
+}
+$("centrehand").addEventListener("click", function(){
+  ensureAudio();
+  if (centreArmed) { armCentre(false); statusEl.textContent = "the hand withdraws."; return; }
+  if (setterArmed) { armSetter(false); clearProposal(); }
+  armCentre(true);
+  statusEl.textContent = "touch the map — the circle will sit where you point.";
+});
+
+$("centre").addEventListener("click", function(){
+  ensureAudio();
+  armCentre(false);
+  if (!("geolocation" in navigator)) {
+    statusEl.textContent = "this device won't say where you are — centre by hand instead.";
+    return;
+  }
+  statusEl.textContent = "asking the device where you are…";
+  navigator.geolocation.getCurrentPosition(function(pos){
+    state.here = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+    drawHere();
+    throwCentre = state.here;
+    throwHow = "you";
+    map.setView([state.here.lat, state.here.lon], usingOS ? 7 : 14);
+    drawThrowCircle();
+    statusEl.textContent = "centred on you. choose a range and throw.";
+  }, function(err){
+    statusEl.textContent = "location refused (" + err.message + ") — centre by hand instead.";
+  }, { enableHighAccuracy: true, timeout: 20000 });
+});
+
+$("dart").addEventListener("click", function(){
+  ensureAudio();
+  var R = radiusChosen();
+  if (!throwCentre) {
+    var c = map.getCenter();
+    throwCentre = { lat: c.lat, lon: c.lng };
+    throwHow = "map";
+    drawThrowCircle();
+  }
+  // a uniform point in the circle: utterly random, as agreed
+  var r = R * Math.sqrt(Math.random()), th = 2 * Math.PI * Math.random();
+  var p = {
+    lat: throwCentre.lat + (r * Math.cos(th)) / 111320,
+    lon: throwCentre.lon + (r * Math.sin(th)) / (111320 * Math.cos(throwCentre.lat * Math.PI / 180))
+  };
+  var egg = GEO.layEgg(p.lat, p.lon);
+  var sealed = $("sealed").checked;
+  var from = throwHow === "hand" ? " · centred by hand" :
+             throwHow === "map"  ? " · from the map's centre" : "";
+  setTarget(p, sealed, "Gallinago · " + radiusLabel(R) + " flight" + from);
+  if (sealed) reading.textContent = "Gallinago has dropped, unseen";
+  if (egg) showEgg(egg);
+});
+
+/* ════════════════ THE SETTER'S HAND ════════════════
+   another hand — Paul's, a Claude's in a Chrome — clicks
+   the map, seals, and the map forgets: marker gone, view
+   flung wide WITHOUT animation (a flight could be watched
+   and retraced), nothing left but the egg.               */
+var proposed = null, proposedMarker = null;
+
+/* the setter's hand, armed like the centring hand — a pressed key, not a
+   hidden checkbox. arming one hand lowers the other; the two never both
+   reach for the map at once. */
+var setterArmed = false;
+function armSetter(on){
+  setterArmed = on;
+  var b = $("setterbtn");
+  b.setAttribute("aria-pressed", on ? "true" : "false");
+  b.textContent = on ? "Touch the map…" : "Point to it";
+}
+
+function eggMarkerIcon(seed){
+  seed = seed >>> 0;
+  return L.divIcon({ className: "snipe-marker", iconSize: [20, 26], iconAnchor: [10, 13],
+    html: OVA.svg("snipe", seed, { width: 20, id: "pin" + seed }) });
+}
+function clearProposal(){
+  proposed = null;
+  if (proposedMarker) { map.removeLayer(proposedMarker); proposedMarker = null; }
+  $("lay").disabled = true;
+}
+
+/* a pinch or a pan must never impersonate a click —
+   clicks during, or within a breath after, any gesture
+   are ignored. eggs do not move themselves.            */
+var gestureUntil = 0;
+map.on("zoomstart movestart", function(){ gestureUntil = Infinity; });
+map.on("zoomend moveend", function(){ gestureUntil = Date.now() + 250; });
+
+map.on("click", function(e){
+  if (Date.now() < gestureUntil) return;
+  if (centreArmed) {
+    throwCentre = { lat: e.latlng.lat, lon: e.latlng.lng };
+    throwHow = "hand";
+    drawThrowCircle();
+    armCentre(false);
+    statusEl.textContent = "the circle sits where you pointed. choose a range and throw — or press Centre by hand to move it.";
+  } else if (setterArmed) {
+    proposed = { lat: e.latlng.lat, lon: e.latlng.lng };
+    if (proposedMarker) map.removeLayer(proposedMarker);
+    /* the pin hatches the egg of THIS coordinate — seed it from the
+       very code it would lay, so the same spot is always the same egg */
+    var pcode = GEO.layEgg(proposed.lat, proposed.lon);
+    var pseed = OVA.seedFrom(pcode || (proposed.lat.toFixed(5) + "," + proposed.lon.toFixed(5)));
+    proposedMarker = L.marker([proposed.lat, proposed.lon], { icon: eggMarkerIcon(pseed) }).addTo(map);
+    $("lay").disabled = false;
+    statusEl.textContent = "a spot is proposed, unsealed. seal to lay the egg.";
+  }
+  /* otherwise: a plain click is only a click. the map does
+     nothing behind your back.                              */
+});
+
+$("setterbtn").addEventListener("click", function(){
+  ensureAudio();
+  if (setterArmed) { armSetter(false); clearProposal(); statusEl.textContent = "the hand withdraws."; return; }
+  armCentre(false);                 /* lower the centring hand first */
+  armSetter(true);
+  statusEl.textContent = "touch the map — point to where the egg should hide.";
+});
+
+$("lay").addEventListener("click", function(){
+  ensureAudio();
+  if (!proposed) return;
+  var egg = GEO.layEgg(proposed.lat, proposed.lon);
+  if (!egg) { statusEl.textContent = "that spot is off the national grid — choose ground in Britain."; return; }
+  // amnesia, in this order: forget the spot, then look away
+  clearProposal();
+  armSetter(false);
+  if (throwCircle) { map.removeLayer(throwCircle); throwCircle = null; }
+  throwCentre = null; throwHow = null;
+  map.setView([CONFIG.home.lat, CONFIG.home.lon], usingOS ? WIDE.os : WIDE.osm, { animate: false });
+  showEgg(egg);
+  statusEl.textContent = "the egg is laid. the map remembers nothing.";
+});
+
+/* ════════════════ THE EGG TRAY ════════════════ */
+function showEgg(code){
+  $("eggrow").hidden = false;
+  $("eggout").value = code;
+  var sp = $("eggspecimen");
+  if (sp) sp.innerHTML = code ? OVA.svg("snipe", OVA.seedFrom(code), { width: 36, id: "tray" }) : "";
+}
+$("copyegg").addEventListener("click", function(){
+  var v = $("eggout").value;
+  if (!v) return;
+  function done(ok){
+    $("copyegg").textContent = ok ? "Copied" : "Copy failed";
+    setTimeout(function(){ $("copyegg").textContent = "Copy"; }, 1400);
+  }
+  function fallback(){
+    try { $("eggout").select(); done(document.execCommand("copy")); } catch (e) { done(false); }
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(v).then(function(){ done(true); }, fallback);
+  } else fallback();
+});
+
+/* the seal wears the canonical snipe egg — OVA's family seed, 1817 */
+$("sealegg").innerHTML = OVA.svg("snipe", 1817, { width: 26, id: "seal" });
+
+/* the release key wears the bird herself — rust, standing, wordless */
+$("releasesnipe").innerHTML = snipeBirdSVG(22);
+
+/* the seen/unseen toggle wears the same standing snipe, a touch smaller */
+$("sealedsnipe").innerHTML = snipeBirdSVG(20);
+
+/* ════════════════ PLANT THE MASTHEAD EGG ════════════════
+   The O in DISORIENTEERING is a nest. On every load we lay one
+   fresh snipe egg into it — a new seed each time, so the freckles
+   are never twice the same, yet always unmistakably Gallinago's.
+   It carries its own id, so its shell-gradient never quarrels with
+   the seal-egg, the tray, or the find. (There is no legal limit to
+   the number of imaginary snipe eggs on a page; the College de
+   'Pataphysique was consulted and declined to set one.)          */
+(function plantMastheadEgg(){
+  var nest = $("egg-o");
+  if (!nest || typeof OVA === "undefined") return;
+  var seed = (Math.random() * 0x100000000) >>> 0;   // a fresh clutch each visit
+  nest.innerHTML = OVA.svg("snipe", seed, { id: "mast", pad: 3 });
+  nest.dataset.seed = seed;                          // a trace, for the curious
+})();
+
+/* ════════════════ THE FIND — sketch the egg ════════════════
+   On arrival, the one true egg of the Particular is drawn here for
+   the field notes. The egg is a pure function of the egg code
+   (code → seed → freckle-scatter), so the same ground always lays
+   the same egg, fleck for fleck, and no other ground its like. It
+   is proof of a naturalist's honourable sort — not a tamper-proof
+   seal, but the snipe runs on honour, and so does the family chat.
+   Never collected: only sketched, and carried home.              */
+var currentEgg = { code: null };
+
+function eggSVGFor(code, width){
+  return OVA.svg("snipe", OVA.seedFrom(code), { width: width, id: "sketch" + width });
+}
+
+function revealFind(p){
+  if (!p) return;
+  var code = GEO.layEgg(p.lat, p.lon);
+  if (!code) return;                       // off the grid — nothing to draw
+  var gr = GEO.toGR(p.lat, p.lon, 8);
+  var now = new Date();
+  var dd = now.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  var tt = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  currentEgg = {
+    code: code,
+    grLine: gr ? "found at " + gr : "found beyond the lettered grid",
+    dateLine: "recorded " + dd + " · " + tt
+  };
+  $("findegg").innerHTML = OVA.svg("snipe", OVA.seedFrom(code), { width: 112, id: "find" });
+  $("findcode").textContent = code;
+  $("findgr").textContent = currentEgg.grLine;
+  $("finddate").textContent = currentEgg.dateLine;
+  $("find").hidden = false;
+  /* arrival is no click, so wake the auto-frame by hand — the parent
+     iframe should grow to show the card. (a ResizeObserver catches it
+     too, where the browser keeps one; this is the belt to that's brace.) */
+  window.dispatchEvent(new Event("resize"));
+}
+
+function fileDrop(name, mime, text){
+  var blob = new Blob([text], { type: mime }), url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+}
+function flash(btn, said){
+  var had = btn.textContent; btn.textContent = said;
+  setTimeout(function(){ btn.textContent = had; }, 1700);
+}
+
+/* the field sketch — the egg itself, as scalable vector. opens crisp
+   at any size; it carries no fonts, only shell and freckle, so it
+   travels anywhere unbroken. this is the true particular.          */
+$("sketchsvg").addEventListener("click", function(){
+  if (!currentEgg.code) return;
+  var svg = '<?xml version="1.0" encoding="UTF-8"?>\n' + eggSVGFor(currentEgg.code, 240);
+  fileDrop("field-sketch-" + currentEgg.code + ".svg", "image/svg+xml;charset=utf-8", svg);
+  flash(this, "sketched — see your downloads");
+});
+
+/* the field note — the whole specimen plate, baked onto paper as a PNG:
+   egg, species, grid reference, date, and code, ruled like a label. this
+   is the keepsake — the image you scroll back through to remember the day.
+   drawn at twice the size for a crisp plate, and we wait for the two
+   field-note faces to load before lettering, so nothing falls to a
+   fallback. */
+$("sketchpng").addEventListener("click", function(){
+  if (!currentEgg.code) return;
+  var btn = this, DPR = 2, W = 640, eggW = 300;
+  var svg = eggSVGFor(currentEgg.code, eggW * DPR);
+  var img = new Image();
+  img.onload = function(){
+    function draw(){
+      var eh = eggW * (img.height / img.width), pad = 54;
+      var yRule = pad + 30, yEgg = yRule + 26;
+      var ySpecies = yEgg + eh + 40, yGR = ySpecies + 30, yDate = yGR + 27, yCode = yDate + 40;
+      var H = yCode + pad;
+      var cv = document.createElement("canvas");
+      cv.width = W * DPR; cv.height = H * DPR;
+      var ctx = cv.getContext("2d"); ctx.scale(DPR, DPR);
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#f7f5ef"; ctx.fillRect(0, 0, W, H);                 // paper
+      ctx.strokeStyle = "#473c30"; ctx.lineWidth = 1.5;
+      ctx.strokeRect(11, 11, W - 22, H - 22);                              // ink rule
+      ctx.fillStyle = "#6d6052";                                          // eyebrow
+      ctx.font = "12px 'IBM Plex Mono', ui-monospace, monospace";
+      if ("letterSpacing" in ctx) ctx.letterSpacing = "3px";
+      ctx.fillText("THE FIND · A FIELD RECORD", W / 2, pad + 8);
+      if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
+      ctx.strokeStyle = "#d4cab6"; ctx.lineWidth = 1;                     // hairline under eyebrow
+      ctx.beginPath(); ctx.moveTo(pad, yRule); ctx.lineTo(W - pad, yRule); ctx.stroke();
+      ctx.drawImage(img, (W - eggW) / 2, yEgg, eggW, eh);                 // the egg
+      ctx.fillStyle = "#473c30";                                          // species
+      ctx.font = "italic 30px 'EB Garamond', Georgia, serif";
+      ctx.fillText("Gallinago gallinago", W / 2, ySpecies);
+      ctx.fillStyle = "#6d6052";                                          // place & day
+      ctx.font = "italic 19px 'EB Garamond', Georgia, serif";
+      ctx.fillText(currentEgg.grLine, W / 2, yGR);
+      ctx.fillText(currentEgg.dateLine, W / 2, yDate);
+      ctx.fillStyle = "#9c4f2e";                                          // the code
+      ctx.font = "600 22px 'IBM Plex Mono', ui-monospace, monospace";
+      if ("letterSpacing" in ctx) ctx.letterSpacing = "2px";
+      ctx.fillText(currentEgg.code, W / 2, yCode);
+      if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
+      cv.toBlob(function(blob){
+        if (!blob){ statusEl.textContent = "the field note wouldn't take — Sketch the egg still gives the true vector."; return; }
+        var url = URL.createObjectURL(blob), a = document.createElement("a");
+        a.href = url; a.download = "field-record-" + currentEgg.code + ".png";
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+      }, "image/png");
+      flash(btn, "kept — see your downloads");
+    }
+    if (document.fonts && document.fonts.load) {
+      Promise.all([
+        document.fonts.load("italic 30px 'EB Garamond'"),
+        document.fonts.load("600 22px 'IBM Plex Mono'")
+      ]).then(draw, draw);
+    } else draw();
+  };
+  img.onerror = function(){ statusEl.textContent = "the field note wouldn't take — Sketch the egg still gives the true vector."; };
+  img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+});
+
+/* ════════════════ THE TWO FACES — turning the instrument ════════════════
+   The switch turns the one instrument to one face at a time, at every
+   width: Ova here ▸ (the walk) or Ova where ¿ (the laying). Leaflet must
+   be told to re-measure whenever the map returns to view, having sat a
+   while at display:none. */
+function showFace(which){
+  var seek = $("face-seek"), hide = $("face-hide"),
+      ts = $("tab-seek"), th = $("tab-hide");
+  var toHide = (which === "hide");
+  hide.classList.toggle("active", toHide);
+  seek.classList.toggle("active", !toHide);
+  th.setAttribute("aria-selected", toHide ? "true" : "false");
+  ts.setAttribute("aria-selected", toHide ? "false" : "true");
+  if (toHide && map) {
+    setTimeout(function(){ map.invalidateSize(); }, 0);
+    setTimeout(function(){ map.invalidateSize(); }, 240);
+  }
+  window.dispatchEvent(new Event("resize"));   // wake the auto-frame to the new height
+}
+$("tab-seek").addEventListener("click", function(){ showFace("seek"); });
+$("tab-hide").addEventListener("click", function(){ showFace("hide"); });
+
+/* ════════════════ WALK IT YOURSELF — the hinge, made tappable ═══════════
+   The egg you just laid is carried to the nest and the instrument turns
+   to its walking face. (Flying Gallinago already primes the nest behind
+   the scenes; this is the same crossing for an egg laid by hand — and the
+   visible turn of the instrument, either way.) */
+$("towalk").addEventListener("click", function(){
+  ensureAudio();
+  var code = $("eggout").value;
+  if (!code) return;
+  var p = GEO.hatchEgg(code);
+  if (!p) { statusEl.textContent = "that egg won't hatch — its code is addled."; return; }
+  setTarget(p, true, "carried from the laying to the nest");
+  showFace("seek");
+});
+
+/* ════════════════ THE STOPPAGE — an egg where you stand ═════════════════
+   No walk. We take your present whereabouts, lay the one true egg of that
+   exact spot, and — the distance being nil — the snipe winnows at once and
+   the find is drawn for the logbook. After Duchamp: chance, dropped, fixed,
+   and kept. The Particular you'd have walked clean past on the way from A
+   to B, singled out, sealed, made unrepeatable by an indifferent bird. */
+$("stoppage").addEventListener("click", function(){
+  ensureAudio();
+  if (!("geolocation" in navigator)) {
+    statusEl.textContent = "this device won't say where you stand — the Stoppage needs that much.";
+    return;
+  }
+  statusEl.textContent = "taking the measure of where you stand…";
+  navigator.geolocation.getCurrentPosition(function(pos){
+    var here = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+    if (!GEO.layEgg(here.lat, here.lon)) {
+      statusEl.textContent = "you stand off the national grid — the Stoppage wants British ground underfoot.";
+      return;
+    }
+    state.here = here;
+    drawHere();
+    setTarget(here, true, "the Stoppage");   // sealed: arrive() drops one marker and draws the find
+    reading.textContent = "here · sealed";
+    reading.classList.add("arrived");
+    statusEl.textContent = "you stand upon it. the place is sealed — its egg is drawn below, a page for the logbook.";
+  }, function(err){
+    statusEl.textContent = "where-you-stand was refused (" + err.message + "). the Stoppage needs your whereabouts.";
+  }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+});
+
+/* the map now opens behind the switch (Ova here shows first), so it is
+   measured properly the first time you turn to Ova where — see showFace,
+   which invalidates its size on arrival. this late call is a harmless
+   belt to that brace, in case the map is the opening face one day. */
+setTimeout(function(){ if (map) map.invalidateSize(); }, 500);
+
+aimNeedle();
+</script>
+</div><!-- /#snipe-root -->
+
+<script>
+/* ─── AUTO-FRAME ─── the same incantation as your other instruments.
+   This file measures its own height and whispers it over the garden wall to
+   the parent page. The listener already living in your site footer hears
+   {eggFrame:true, id:"snipe-root", …} and grows the iframe #eggframe-snipe-root
+   to match — no inner scrollbar. It re-posts whenever the height could have
+   changed: on load, when the snipe wakes or follows, when an egg is sealed,
+   when the reading reflows, when the map paints, when the fonts swap in. */
+(function(){
+  var last=0;
+  function measure(){
+    var root=document.getElementById("snipe-root");
+    return root?Math.ceil(root.getBoundingClientRect().height):document.body.scrollHeight;
+  }
+  function postH(){
+    var h=measure();
+    if(h&&Math.abs(h-last)>1){last=h;
+      if(window.parent)window.parent.postMessage({eggFrame:true,id:"snipe-root",height:h},"*");}
+  }
+  window.addEventListener("load",function(){postH();setTimeout(postH,300);setTimeout(postH,1200);});
+  if(window.ResizeObserver){var ro=new ResizeObserver(postH);window.addEventListener("load",function(){var r=document.getElementById("snipe-root");if(r)ro.observe(r);});}
+  document.addEventListener("click",function(){setTimeout(postH,200);setTimeout(postH,600);});
+  document.addEventListener("change",function(){setTimeout(postH,120);setTimeout(postH,500);});
+  document.addEventListener("input",function(){setTimeout(postH,120);});
+  document.addEventListener("animationend",function(){setTimeout(postH,40);});
+  window.addEventListener("resize",function(){setTimeout(postH,150);});
+  if(document.fonts&&document.fonts.ready){document.fonts.ready.then(function(){setTimeout(postH,60);});}
+})();
+</script>
+</body>
+</html>
