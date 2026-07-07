@@ -2,8 +2,6 @@
 
 *Compass tool with ‘Pataphysical egg function*
 
-> A machine for hiding and finding imaginary eggs. One user lays an egg upon the map — by chance, or by hand; another is given only its code, and must follow the snipe’s bill to the Particular. The compass is *ova here*; the map is *ova there*.
-
 **Live:** [or-ni-thology.cloud](https://or-ni-thology.cloud/disorienteering) · **Licence:** [CC0 1.0](LICENSE) — public domain, take it, change it, no credit needed
 
 ---
@@ -33,4 +31,5 @@ Upon arrival, a sketch of Hügelschäffer curves is generated in the snipe’s c
 
 ---
 
+Imagined and built in conversation with Claude (Anthropic). 
 It is nice and fun and good exercise. The UI is partially intuitive.
